@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lege · Hotel Management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<aside class="side">
+  <div class="mark"><div class="m">L</div><div><b id="brandName">LEGE</b><span>Hotel</span></div></div>
+  <nav class="nav" aria-label="Sections">
+    <button data-action="nav" data-view="overview"><svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7"/><rect x="13.5" y="3.5" width="7" height="7"/><rect x="3.5" y="13.5" width="7" height="7"/><rect x="13.5" y="13.5" width="7" height="7"/></svg>Overview</button>
+    <button data-action="nav" data-view="rooms"><svg viewBox="0 0 24 24"><path d="M4 21V9l8-6 8 6v12M4 21h16M9 21v-6h6v6M9 11h.01M15 11h.01"/></svg>Rooms</button>
+    <button data-action="nav" data-view="res"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="1"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>Reservations</button>
+    <button data-action="nav" data-view="guests"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>Guests</button>
+    <button data-action="nav" data-view="fnb"><svg viewBox="0 0 24 24"><path d="M7 3v8M4.5 3v5a2.5 2.5 0 0 0 5 0V3M7 11v10M17 3c-2 1.5-3 4-3 7h3v11M17 3v7"/></svg>Bar &amp; Restaurant</button>
+    <button data-action="nav" data-view="beach"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 18 0zM12 12v9M9 21h6"/></svg>Beach</button>
+    <button data-action="nav" data-view="prices"><svg viewBox="0 0 24 24"><path d="M3.5 12.5V4.5h8l9 9-8 8z"/><circle cx="8" cy="9" r="1.2"/></svg>Prices</button>
+    <button data-action="nav" data-view="staff" data-manager hidden><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.5a3.5 3.5 0 0 1 0 7M18 14.4c2 .7 3.5 2.4 3.5 5.6"/></svg>Staff &amp; Email</button>
+  </nav>
+  <div class="who"><b id="whoName"></b><span id="whoRole"></span></div>
+  <div class="foot">
+    <button data-action="theme">Light / dark theme</button>
+    <button data-action="chpass">Change password</button>
+    <button data-action="logout">Sign out</button>
+  </div>
+</aside>
+
+<main id="main"></main>
+
+<dialog id="dlgD" aria-label="Details"></dialog>
+
+<dialog id="dlgF" aria-label="Reservation">
+  <form id="frm" novalidate>
+    <header><h2 id="fT">New reservation</h2><button type="button" class="x" data-action="close" aria-label="Close">×</button></header>
+    <div class="grid">
+      <label class="f full">Guest name<input id="fGuest" list="gl" autocomplete="off" placeholder="First and last name"></label>
+      <datalist id="gl"></datalist>
+      <label class="f">Phone<input id="fPhone" type="tel" autocomplete="off"></label>
+      <label class="f">Guest email (optional)<input id="fEmail" type="email" autocomplete="off"></label>
+      <label class="f">Number of people<input id="fAd" type="number" min="1" max="12"></label>
+      <label class="f">Room<select id="fRoom"></select></label>
+      <label class="f">Source<select id="fSrc"></select></label>
+      <label class="f">Deposit paid now (lek)<input id="fPaid" type="number" min="0"></label>
+      <label class="f">Arrival<input id="fArr" type="date"></label>
+      <label class="f">Departure<input id="fDep" type="date"></label>
+      <label class="f full">Custom price per night (lek), optional<input id="fCustom" type="number" min="0" placeholder="Automatic"></label>
+      <label class="f full">Special requests<textarea id="fNotes" rows="2"></textarea></label>
+      <label class="chk full" id="fNotifyRow"><input id="fNotify" type="checkbox"><span>Email a confirmation to the guest <small>(needs the guest's email)</small></span></label>
+    </div>
+    <p class="sum" id="fSum"></p><p class="err" id="fErr" role="alert"></p>
+    <div class="dfoot"><button type="button" class="btn" data-action="close">Close</button><button class="btn gold" type="submit">Save reservation</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgR" aria-label="Concierge request">
+  <form id="rfrm" novalidate>
+    <header><h2>New request</h2><button type="button" class="x" data-action="close" aria-label="Close">×</button></header>
+    <div class="grid">
+      <label class="f full">Guest<select id="rGuest"></select></label>
+      <label class="f full">Type<select id="rType"></select></label>
+      <label class="f full">Details<textarea id="rNote" rows="2" placeholder="E.g. table for four at 8:30 pm"></textarea></label>
+    </div>
+    <p class="err" id="rErr" role="alert"></p>
+    <div class="dfoot"><button type="button" class="btn" data-action="close">Close</button><button class="btn gold" type="submit">Add request</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgB" aria-label="Beach umbrella">
+  <form id="bfrm" novalidate>
+    <header><h2>Assign an umbrella</h2><button type="button" class="x" data-action="close" aria-label="Close">×</button></header>
+    <div class="grid">
+      <label class="f full">Umbrella<select id="bSpot"></select></label>
+      <div class="seg full" role="radiogroup" aria-label="Who is it for">
+        <button type="button" id="bWhoGuest" data-action="beach-who" data-v="guest" role="radio">Hotel guest (room)</button>
+        <button type="button" id="bWhoOther" data-action="beach-who" data-v="other" role="radio">Other guest (name)</button>
+      </div>
+      <label class="f full" id="bResRow">Hotel guest<select id="bRes"></select></label>
+      <label class="f full" id="bNameRow">First and last name<input id="bName" autocomplete="off" placeholder="E.g. Anna Smith"></label>
+      <label class="f">From<input id="bFrom" type="date"></label>
+      <label class="f">To (included)<input id="bTo" type="date"></label>
+      <label class="f full">Note (optional)<input id="bNote" maxlength="200"></label>
+    </div>
+    <p class="hint" id="bHint"></p>
+    <p class="err" id="bErr" role="alert"></p>
+    <div class="dfoot"><button type="button" class="btn text" data-action="beach-wholestay" id="bWhole">Whole stay</button><button type="button" class="btn" data-action="close">Close</button><button class="btn gold" type="submit">Assign umbrella</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgM" aria-label="Menu item">
+  <form id="mfrm" novalidate>
+    <header><h2 id="mT">Menu item</h2><button type="button" class="x" data-action="close" aria-label="Close">×</button></header>
+    <div class="grid">
+      <label class="f">Section<input id="mSection" list="msl" autocomplete="off" placeholder="E.g. Coffee"></label>
+      <datalist id="msl"></datalist>
+      <label class="f">Price (lek)<input id="mPrice" type="number" min="0" step="10"></label>
+      <label class="f full">Name<input id="mName" autocomplete="off"></label>
+      <label class="chk full"><input id="mActive" type="checkbox"><span>Available on the menu</span></label>
+    </div>
+    <p class="err" id="mErr" role="alert"></p>
+    <div class="dfoot"><button type="button" class="btn danger" id="mDel" data-action="menu-delete">Delete</button><span style="flex:1"></span><button type="button" class="btn" data-action="close">Close</button><button class="btn gold" type="submit">Save item</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgU" aria-label="Reset password">
+  <form id="uform" novalidate style="padding:26px 28px">
+    <header class="dlg-head"><h2 id="uT">Reset password</h2><button type="button" class="x" data-action="close" aria-label="Close">×</button></header>
+    <div class="grid">
+      <label class="f full">New password (min. 10 characters)<input id="uPass" type="password" autocomplete="new-password"></label>
+    </div>
+    <p class="hint">The person is signed out everywhere and must sign in with the new password.</p>
+    <p class="err" id="uErr" role="alert"></p>
+    <div class="dfoot"><button type="button" class="btn" data-action="close">Close</button><button class="btn gold" type="submit">Set password</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgP" aria-label="Change password">
+  <form id="pform" novalidate style="padding:26px 28px">
+    <header class="dlg-head"><h2>Change password</h2><button type="button" class="x" data-action="close" aria-label="Close">×</button></header>
+    <div class="grid">
+      <label class="f full">Current password<input id="pCur" type="password" autocomplete="current-password"></label>
+      <label class="f full">New password (min. 10 characters)<input id="pNew" type="password" autocomplete="new-password"></label>
+    </div>
+    <p class="err" id="pErr" role="alert"></p>
+    <div class="dfoot"><button type="button" class="btn" data-action="close">Close</button><button class="btn gold" type="submit">Save</button></div>
+  </form>
+</dialog>
+
+<div id="login" hidden>
+  <form id="loginForm" novalidate>
+    <div class="mark"><div class="m" style="border-color:var(--brass);color:var(--brass)">L</div><div><b style="color:var(--ink)">LEGE</b><span>Hotel management</span></div></div>
+    <div class="seg" role="radiogroup" aria-label="Sign in as">
+      <button type="button" id="roleReceptionist" data-action="login-role" data-v="receptionist" role="radio">Receptionist</button>
+      <button type="button" id="roleManager" data-action="login-role" data-v="manager" role="radio">Manager</button>
+    </div>
+    <label class="f">Email<input id="lEmail" type="email" autocomplete="username" required></label>
+    <label class="f">Password<input id="lPass" type="password" autocomplete="current-password" required></label>
+    <p class="err" id="lErr" role="alert"></p>
+    <button class="btn gold" type="submit" id="lBtn">Sign in as Receptionist</button>
+  </form>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="/pricing.js"></script>
+<script src="/app.js"></script>
+<script src="/prices.js"></script>
+<script src="/fnb.js"></script>
+<script src="/beach.js"></script>
+<script src="/staff.js"></script>
+<script src="/start.js"></script>
+</body>
+</html>

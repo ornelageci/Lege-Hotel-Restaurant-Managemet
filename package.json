@@ -1,0 +1,29 @@
+{
+  "name": "lege-hotel",
+  "version": "1.0.0",
+  "description": "Hotel management system for Hotel Lege: rooms, reservations, guests, prices, payments, bar and restaurant, beach umbrellas and email notifications.",
+  "private": true,
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/pricing.test.js test/api.test.js",
+    "create-user": "node server/cli/create-user.js",
+    "seed-demo": "node server/cli/seed-demo.js",
+    "backup": "node server/cli/backup.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.7.0",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^10.0.10"
+  }
+}
