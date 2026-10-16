@@ -334,7 +334,7 @@ async function checkedInGuest(c, name, room, adults = 2) {
 }
 
 test('bar order charged to the room is added to the bill; payments cover stay + charges', async () => {
-  const c = await loginAs('recepsion@lege.al');
+  const c = await loginAs('admin@lege.al');
   const id = await checkedInGuest(c, 'Room Charge', '108');       // standard: 3 nights × 7,500 = 22,500
   const o = await call('POST', '/orders', {
     outlet: 'bar', destination: 'room', reservationId: id,
@@ -352,7 +352,7 @@ test('bar order charged to the room is added to the bill; payments cover stay + 
 });
 
 test('restaurant order: only checked-in guests can charge a room; wrong-outlet, inactive and empty orders are refused', async () => {
-  const c = await loginAs('recepsion@lege.al');
+  const c = await loginAs('admin@lege.al');
   const { data } = await call('POST', '/reservations', { guestName: 'Not Yet', roomId: '109', arr: day(5), dep: day(6), adults: 2 }, c);
   const notIn = await call('POST', '/orders', { outlet: 'restaurant', destination: 'room', reservationId: data.id, items: [{ id: 'rest-burger', qty: 1 }] }, c);
   assert.equal(notIn.status, 409);
@@ -368,7 +368,7 @@ test('restaurant order: only checked-in guests can charge a room; wrong-outlet, 
 });
 
 test('pay-now orders need cash or card; the day report separates room charges, cash and card', async () => {
-  const c = await loginAs('recepsion@lege.al');
+  const c = await loginAs('admin@lege.al');
   assert.equal((await call('POST', '/orders', { outlet: 'bar', destination: 'paid', items: [{ id: 'bar-cola', qty: 1 }] }, c)).status, 400, 'method missing');
   assert.equal((await call('POST', '/orders', { outlet: 'bar', destination: 'paid', method: 'cash', label: 'Terrace 2', items: [{ id: 'bar-cola', qty: 2 }] }, c)).status, 200);
   assert.equal((await call('POST', '/orders', { outlet: 'bar', destination: 'paid', method: 'card', items: [{ id: 'bar-beer-draft', qty: 1 }] }, c)).status, 200);
@@ -376,7 +376,7 @@ test('pay-now orders need cash or card; the day report separates room charges, c
   assert.equal(day1.status, 200);
   assert.ok(day1.data.totals.cash >= 400 && day1.data.totals.card >= 300 && day1.data.totals.room >= 1000);
   assert.ok(day1.data.orders.every((o) => o.outlet === 'bar'));
-  assert.ok(day1.data.orders.some((o) => o.label === 'Terrace 2' && o.staff === 'Recepsion'));
+  assert.ok(day1.data.orders.some((o) => o.label === 'Terrace 2' && o.staff === 'Admin'));
   assert.equal((await call('GET', '/orders?date=2026-13-40', null, c)).status, 400);
   assert.equal((await call('GET', `/orders?date=${today()}&outlet=spa`, null, c)).status, 400);
 });
@@ -385,14 +385,14 @@ test('only the manager can void an order; voiding removes the room charge', asyn
   const rec = await loginAs('recepsion@lege.al');
   const adm = await loginAs('admin@lege.al');
   const id = await checkedInGuest(rec, 'Void Guest', '104');
-  const o = (await call('POST', '/orders', { outlet: 'bar', destination: 'room', reservationId: id, items: [{ id: 'bar-mojito', qty: 2 }] }, rec)).data;
+  const o = (await call('POST', '/orders', { outlet: 'bar', destination: 'room', reservationId: id, items: [{ id: 'bar-mojito', qty: 2 }] }, adm)).data;
   assert.equal((await call('POST', `/orders/${o.id}/void`, null, rec)).status, 403);
   assert.equal((await call('POST', `/orders/${o.id}/void`, null, adm)).status, 200);
   assert.equal((await call('POST', `/orders/${o.id}/void`, null, adm)).status, 409, 'already voided');
   const res = (await state(rec)).res.find((r) => r.id === id);
   assert.equal(res.chargesTotal, 0);
   // after check-out a room charge can no longer be voided
-  const o2 = (await call('POST', '/orders', { outlet: 'bar', destination: 'room', reservationId: id, items: [{ id: 'bar-mojito', qty: 1 }] }, rec)).data;
+  const o2 = (await call('POST', '/orders', { outlet: 'bar', destination: 'room', reservationId: id, items: [{ id: 'bar-mojito', qty: 1 }] }, adm)).data;
   await call('POST', `/reservations/${id}/payments`, { amount: 22500 + 700, method: 'cash' }, rec);
   const out = await call('POST', `/reservations/${id}/checkout`, null, rec);
   assert.equal(out.status, 200);
@@ -401,7 +401,7 @@ test('only the manager can void an order; voiding removes the room charge', asyn
 });
 
 test('check-out reports the unpaid balance including room charges', async () => {
-  const c = await loginAs('recepsion@lege.al');
+  const c = await loginAs('admin@lege.al');
   const id = await checkedInGuest(c, 'Owes Money', '102');
   await call('POST', '/orders', { outlet: 'restaurant', destination: 'room', reservationId: id, items: [{ id: 'rest-burger', qty: 2 }] }, c);
   const out = await call('POST', `/reservations/${id}/checkout`, null, c);
@@ -424,7 +424,7 @@ test('menu: the manager adds, edits, hides and deletes items; the receptionist c
   assert.equal((await state(rec)).menu.find((m) => m.id === id).price, 220);
   const g = await checkedInGuest(rec, 'Coffee Guest', '103');
   assert.equal((await call('PATCH', `/menu/${id}`, { active: false }, adm)).status, 200);
-  assert.equal((await call('POST', '/orders', { outlet: 'bar', destination: 'room', reservationId: g, items: [{ id, qty: 1 }] }, rec)).status, 409, 'hidden items cannot be ordered');
+  assert.equal((await call('POST', '/orders', { outlet: 'bar', destination: 'room', reservationId: g, items: [{ id, qty: 1 }] }, adm)).status, 409, 'hidden items cannot be ordered');
   assert.equal((await call('DELETE', `/menu/${id}`, null, rec)).status, 403);
   assert.equal((await call('DELETE', `/menu/${id}`, null, adm)).status, 200);
   assert.equal((await call('DELETE', `/menu/${id}`, null, adm)).status, 404);
@@ -673,7 +673,7 @@ test('exchange rates are read from the API response as lek per unit', async () =
 });
 
 test('one bill for bar and restaurant: a mixed order is saved as one order per outlet', async () => {
-  const c = await loginAs('recepsion@lege.al');
+  const c = await loginAs('admin@lege.al');
   const { data } = await call('POST', '/reservations', { guestName: 'Mixed Bill', roomId: '107', arr: day(500), dep: day(502), adults: 2 }, c);
   await call('POST', '/rooms/107/clean', null, c);
   assert.equal((await call('POST', `/reservations/${data.id}/checkin`, null, c)).status, 200);
@@ -723,4 +723,12 @@ test('beach rows: row 1 is the front row; the manager sets how many umbrellas pe
   assert.equal(d.spots.find((s) => s.spot === 10).row, 2);
   assert.equal(d.spots.find((s) => s.spot === 10).pos, 1);
   assert.equal((await call('PUT', '/settings', { beachPerRow: 0 }, adm)).status, 400);
+});
+
+test('receptionists cannot use the bar & restaurant (orders are manager only)', async () => {
+  const rec = await loginAs('recepsion@lege.al');
+  assert.equal((await call('GET', `/orders?date=${today()}`, null, rec)).status, 403);
+  assert.equal((await call('POST', '/orders', { destination: 'paid', method: 'cash', items: [{ id: 'bar-cola', qty: 1 }] }, rec)).status, 403);
+  const adm = await loginAs('admin@lege.al');
+  assert.equal((await call('GET', `/orders?date=${today()}`, null, adm)).status, 200);
 });

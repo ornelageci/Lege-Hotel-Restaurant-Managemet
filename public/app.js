@@ -130,8 +130,10 @@ function render() {
   $('whoName').textContent = S.me.name;
   $('whoRole').textContent = isManager() ? 'Manager' : 'Receptionist';
   document.querySelectorAll('[data-manager]').forEach((b) => { b.hidden = !isManager(); });
-  if (!isManager() && document.querySelector(`.nav [data-view="${UI.view}"][data-manager]`)) UI.view = 'overview';
+  if (!isManager() && document.querySelector(`.nav [data-view="${UI.view}"][data-manager]`)) UI.view = 'overview';   // e.g. a receptionist opening /bar-restaurant
   document.querySelectorAll('.nav button').forEach((b) => { if (b.dataset.view === UI.view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+  const cur = document.querySelector('.nav [aria-current="page"]'), nav = document.querySelector('.nav');
+  if (cur && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = cur.offsetLeft - (nav.clientWidth - cur.offsetWidth) / 2;
   $('main').innerHTML = VIEWS[UI.view]();
   if (AFTER[UI.view]) AFTER[UI.view]();
   syncUrl(false);   // keep the address bar in step (dates, selected guest...) without adding history entries
@@ -363,7 +365,7 @@ function openRes(id) {
   if (x.status === 'cancelled') acts += `<button class="btn gold" data-action="restore" data-id="${x.id}">Restore</button>`;
   if (x.status !== 'checkedout' && x.status !== 'cancelled') acts += `<button class="btn" data-action="edit" data-id="${x.id}">Edit</button>`;
   let more = '';
-  if (x.status === 'checkedin') more += `<button data-action="fnb-for" data-id="${x.id}">Bar / restaurant order</button>`;
+  if (x.status === 'checkedin' && isManager()) more += `<button data-action="fnb-for" data-id="${x.id}">Bar / restaurant order</button>`;
   if (x.status === 'confirmed' || x.status === 'checkedin') more += `<button data-action="beach-for" data-id="${x.id}">Beach umbrella</button>`;
   more += `<button data-action="gopen" data-id="${g.id}">Guest profile</button>`;
   if (x.status === 'confirmed') more += `<button class="danger" data-action="cancel" data-id="${x.id}">Cancel reservation</button>`;

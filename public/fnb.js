@@ -47,7 +47,7 @@ VIEWS.fnb = function fnbHTML() {
   ${F.manage ? menuEditorHTML() : ''}
   <div class="pos">
     <section aria-label="Menu">${menuHTML}</section>
-    <aside class="ticket" aria-label="Current order">
+    <aside class="ticket" id="ticket" aria-label="Current order">
       <h2 class="sec">New order <small>bar and restaurant together</small></h2>
       ${cartHTML}
       <div class="tot"><span>Total</span><b>${money(tot)}</b></div>
@@ -58,6 +58,7 @@ VIEWS.fnb = function fnbHTML() {
       ${lines.length ? '<button class="btn text" data-action="fnb-clear">Clear order</button>' : ''}
     </aside>
   </div>
+  ${lines.length ? `<button class="cartbar" data-action="fnb-show-order"><span>${lines.reduce((a, l) => a + l.qty, 0)} items</span><b>View order · ${money(tot)}</b></button>` : ''}
   ${ordersHTML()}`;
 };
 
@@ -109,6 +110,7 @@ Object.assign(ACTIONS, {
   'fnb-add': (el) => fnbBump(el.dataset.id, 1),
   'fnb-dec': (el) => fnbBump(el.dataset.id, -1),
   'fnb-rm': (el) => { delete UI.fnb.cart[el.dataset.id]; render(); },
+  'fnb-show-order': () => $('ticket').scrollIntoView({ behavior: 'smooth', block: 'start' }),
   'fnb-clear': () => { UI.fnb.cart = {}; UI.fnb.note = ''; render(); },
   'fnb-dest': (el) => { UI.fnb.dest = el.dataset.v; render(); },
   'fnb-day': async (el) => { const n = +el.dataset.n; UI.fnb.date = n === 0 ? today() : addDays(UI.fnb.date, n); UI.fnb.data = null; render(); await loadOrders(); },

@@ -466,3 +466,97 @@ h2.sec.gap{margin-top:36px}
 /* other rules set "background:" as a shorthand, which would wipe the arrow; keep it */
 .f select,.tools select,.ptable select,.addu .f2 select,.payf select,.inl select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23617069' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;background-size:12px 8px}
 .stay .badge{display:inline-block;vertical-align:1px}
+
+/* ---------- phones ---------- */
+@media (max-width:980px){
+  .side{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:6px 10px;padding:10px 12px 0}
+  .side .mark{grid-column:1;padding:0}
+  .side .who{grid-column:2;padding:0;min-width:0;text-align:right}
+  .side .who b,.side .who span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .side .foot{grid-column:3;gap:6px}
+  .side .foot button{padding:6px 9px;font-size:12.5px;white-space:nowrap}
+  .nav{grid-column:1/-1;grid-row:2;min-width:0;width:100%;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;margin:0 -12px;width:calc(100% + 24px);padding:0 4px}
+  .nav::-webkit-scrollbar{display:none}
+  .nav svg{width:18px;height:18px}
+  .nav button{gap:8px;font-size:14px;padding:12px 12px 10px}
+  /* rooms: the facade fits the screen, 5 rooms per line */
+  .fwrap{overflow:visible}
+  .facade{min-width:0}
+  .storey{grid-template-columns:1fr}
+  .slab{flex-direction:row;gap:10px;align-items:baseline;flex-wrap:wrap;border-right:0;border-bottom:1px solid #C9A45C40;padding:10px 14px}
+  .bays{grid-template-columns:repeat(5,minmax(0,1fr));padding:12px}
+  .pediment{height:64px}
+  .pediment span{font-size:20px}
+}
+@media (max-width:700px){
+  main{padding:20px 14px 60px}
+  .pagehead{margin-bottom:20px;align-items:flex-start}
+  .pagehead h1{font-size:28px}
+  .head-r{width:100%}
+  .head-r .btn{flex:1}
+  .metric{padding:14px 10px 14px 0;gap:10px}
+  .metric+.metric{padding-left:12px}
+  .metric b{font-size:30px}
+  .metric span{font-size:12.5px}
+  .ring{width:44px;height:44px}
+  .sumline{gap:16px 22px;justify-content:flex-start}
+  .sumline b{font-size:22px}
+  .tools .rng{font-size:17px;margin:0 4px;flex:1 0 100%;order:-1}
+  .tl-leg{margin-left:0;width:100%}
+  .lrow{flex-wrap:wrap}
+  .lrow .who{flex-basis:calc(100% - 60px)}
+  .gd-head{gap:14px}
+  .gd-head .med{--s:60px!important}
+  .gd-head h2{font-size:28px}
+  .seg.tabs{max-width:none}
+  /* dialogs fill the phone screen */
+  dialog{width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}
+  #dlgD.wide,#dlgF{width:calc(100vw - 16px)}
+  .dh2{padding:18px 16px 4px}
+  .dh2 h2{font-size:24px}
+  .dh2 .ttl .med{display:none}
+  .facts{margin:12px 16px}
+  #dlgD.wide .rd-facts{margin:12px 16px 0}
+  #dlgD.wide .rd-side{margin:12px 16px 0}
+  .acts{padding:12px 16px 18px}
+  #frm,#rfrm,#bfrm,#mfrm,#uform,#pform{padding:18px 16px!important}
+  .payrow{flex-wrap:wrap}
+  .payrow input{flex:1 0 100%}
+  .payrow select{flex:1}
+  details.more .menu{left:auto;right:0}
+  .dfoot{flex-wrap:wrap}
+  /* beach: smaller umbrellas; the map scrolls sideways inside its frame */
+  .bmap{min-width:0;width:max-content;max-width:none}
+  .sand{padding:4px 10px 8px}
+  .brow{grid-template-columns:58px auto}
+  .rlab b{font-size:15px}
+  .rlab span{font-size:11px}
+  .rspots{grid-template-columns:repeat(var(--n),50px);gap:4px}
+  .umb .pz{width:38px;height:38px}
+  .umb b{top:16px;font-size:13px}
+  .umb .lb{font-size:10.5px}
+  .beachset{flex-wrap:wrap}
+  .addu .f2,.f2{max-width:none}
+}
+@media (max-width:480px){
+  .grid,.grid.g3{grid-template-columns:1fr}
+  .grid .s2{grid-column:auto}
+  .metrics{grid-template-columns:1fr 1fr}
+  .side .foot button[data-action="chpass"]{display:none}
+}
+@media (max-width:980px){ .cols,.split,.gd-grid,.two,.pos{grid-template-columns:minmax(0,1fr)} h2.sec{flex-wrap:wrap} }
+.cartbar{display:none}
+@media (max-width:980px){
+  .bay .pp{display:none}
+  .cartbar{display:flex;justify-content:space-between;align-items:center;position:sticky;bottom:12px;z-index:30;width:100%;margin-top:16px;padding:14px 18px;border:0;border-radius:4px;background:var(--deep);color:var(--ivory);box-shadow:0 8px 24px rgba(0,0,0,.25);font-size:15px}
+  .cartbar b{color:#E8CE95;font-weight:600}
+  .pos{display:flex;flex-direction:column}
+}
+@media (max-width:700px){
+  .umb .lbx{display:none}
+  .savebar{bottom:8px;padding:10px 12px}
+  .savebar #saveMsg{flex:1 0 100%}
+  .savebar .sp{display:none}
+  .savebar .btn{flex:1}
+}
+@media (max-width:980px){ .pos>*{width:100%;min-width:0} }

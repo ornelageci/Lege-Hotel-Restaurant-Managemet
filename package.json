@@ -9,6 +9,7 @@
     "dev": "node --watch server/index.js",
     "test": "node --test test/pricing.test.js test/api.test.js",
     "create-user": "node server/cli/create-user.js",
+    "reset-password": "node server/cli/reset-password.js",
     "seed-demo": "node server/cli/seed-demo.js",
     "backup": "node server/cli/backup.js"
   },

@@ -75,10 +75,16 @@ npm run create-user -- reception@lege.al "First Last" receptionist
 npm run create-user -- owner@lege.al "First Last" manager
 ```
 
+Forgot a password, or not sure which emails exist?
+
+```bash
+npm run reset-password -- someone@example.com   # asks for the new password; lists all accounts if the email is not found
+```
+
 New users can also be created by a manager right in the app, on the **Staff & Email** screen, or via the API (`POST /api/users`, see `docs/API.md`).
 
-- **receptionist** — reservations, check-in and check-out, payments, guests, concierge, room cleaning, bar/restaurant orders, beach umbrellas.
-- **manager** — everything a receptionist can do, plus prices, room categories, the exchange rate, the menu, voiding orders, the activity log, staff accounts and email notification settings.
+- **receptionist** — overview, rooms, reservations, check-in and check-out, payments, guests, concierge, room cleaning, beach umbrellas. Receptionists do not see Bar & Restaurant or Prices.
+- **manager** — everything a receptionist can do, plus bar & restaurant orders, prices, room categories, the exchange rate, the menu, voiding orders, the activity log, staff accounts and email notification settings.
 
 ## Email notifications
 

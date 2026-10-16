@@ -89,8 +89,9 @@ function createRouter(db, { mailer, notifier }) {
   r.delete('/beach/bookings/:id', h((req) => { beach.release(db, req.user, req.params.id); }));
 
   /* ---- bar and restaurant ---- */
-  r.get('/orders', h((req) => pos.listOrders(db, { date: req.query.date || svc.today(config.tz), outlet: req.query.outlet })));
-  r.post('/orders', h((req) => pos.createOrder(db, req.user, req.body, config.tz)));
+  // Bar & Restaurant is for managers only (receptionists work with rooms, reservations, guests and the beach).
+  r.get('/orders', auth.requireManager, h((req) => pos.listOrders(db, { date: req.query.date || svc.today(config.tz), outlet: req.query.outlet })));
+  r.post('/orders', auth.requireManager, h((req) => pos.createOrder(db, req.user, req.body, config.tz)));
   r.post('/orders/:id/void', auth.requireManager, h((req) => { pos.voidOrder(db, req.user, req.params.id); }));
   r.post('/menu', auth.requireManager, h((req) => pos.createMenuItem(db, req.user, req.body)));
   r.patch('/menu/:id', auth.requireManager, h((req) => { pos.updateMenuItem(db, req.user, req.params.id, req.body); }));

@@ -27,7 +27,7 @@ VIEWS.beach = function beachHTML() {
     const kind = b.reservationId ? 'hotel' : 'walk';
     const sub = b.roomId ? `Room ${esc(b.roomId)}` : (b.reservationId ? 'Hotel guest' : 'Beach guest');
     const short = esc(b.guestName.split(/\s+/).map((w, i) => (i ? w[0] + '.' : w)).join(' '));
-    return `<button class="umb ${kind}" data-action="beach-spot" data-spot="${s.spot}" aria-label="Umbrella ${s.spot}, row ${s.row}, taken by ${esc(b.guestName)}, ${sub}" title="${esc(b.guestName)} · ${sub}">${PARASOL}<b>${s.spot}</b><span class="lb">${b.roomId ? sub : short}</span></button>`;
+    return `<button class="umb ${kind}" data-action="beach-spot" data-spot="${s.spot}" aria-label="Umbrella ${s.spot}, row ${s.row}, taken by ${esc(b.guestName)}, ${sub}" title="${esc(b.guestName)} · ${sub}">${PARASOL}<b>${s.spot}</b><span class="lb">${b.roomId ? `<i class="lbx">Room </i>${esc(b.roomId)}` : short}</span></button>`;
   };
   // The beach as a map: the water on top, row 1 (front row) right at the shore, then the rows behind it.
   const rows = [];
