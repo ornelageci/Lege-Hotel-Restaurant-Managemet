@@ -1,5 +1,6 @@
 /* Prices. Nothing is saved while you type: every change stays in the form until you press "Save changes",
- * which sends the exchange rate, the categories and the prices to the server in one request (all or nothing). */
+ * which sends the categories and the prices to the server in one request (all or nothing).
+ * The exchange rates are not typed in here any more: the server fetches them automatically (server/fx.js). */
 const MON_CAP = MON_LONG;
 
 VIEWS.prices = function pricesHTML() {
@@ -32,9 +33,8 @@ VIEWS.prices = function pricesHTML() {
   ${ro ? '<p class="note" style="margin:-10px 0 20px">Only a manager can change prices.</p>' : '<p class="note" style="margin:-10px 0 20px">Edit as much as you like, then press <b>Save changes</b>. Nothing is saved until you do.</p>'}
   <form id="pricesForm" class="two">
     <section>
-      <h2 class="sec">Exchange rate</h2>
-      <label class="f2">Lek per 1 euro<input${ro} id="fx" type="number" step="0.1" min="1" value="${S.fx}"></label>
-      <p class="note" style="margin-top:8px" id="fxNote">7,500 lek ≈ €${num(7500 / S.fx)} at this rate. Euro is shown only as a guide.</p>
+      <h2 class="sec">Exchange rates <small>updated automatically</small></h2>
+      ${fxHTML()}
       <h2 class="sec gap">Room categories</h2>
       <div class="tw"><table class="ptable"><thead><tr><th>Name</th><th>Rooms</th><th>Max. people</th><th>Included</th><th>Extra person (lek/night)</th></tr></thead><tbody>${catRows}</tbody></table></div>
       <p class="note" style="margin-top:10px" id="priceExample"></p>
@@ -50,13 +50,24 @@ VIEWS.prices = function pricesHTML() {
 
 AFTER.prices = () => updatePriceLive();
 
+/** Today's rates, fetched by the server from a free public service every few hours. Nobody types them in. */
+function fxHTML() {
+  const R = S.fxRates || { EUR: S.fx };
+  const cells = Object.keys(R).map((c) => `<div class="fxc"><span>1 ${c}</span><b>${(+R[c]).toLocaleString('en-US', { maximumFractionDigits: 2 })}</b><small>lek</small></div>`).join('');
+  const upd = S.fxUpdated ? `Last update: ${new Date(S.fxUpdated).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}` : 'Not updated yet: the server could not reach the rate service, so the last saved euro rate is used.';
+  return `<div class="fxgrid">${cells}</div>
+    <p class="note" style="margin-top:8px">${upd} · source: open.er-api.com. Guests can pay in any of these currencies; the amount is converted to lek with the rate of the day.
+    ${isManager() ? '<button class="btn text" data-action="fx-refresh" style="padding:0 4px">Update now</button>' : ''}</p>`;
+}
+ACTIONS['fx-refresh'] = async (el) => {
+  el.disabled = true;
+  await run(() => post('/fx/refresh'), 'Exchange rates updated.');
+};
+
 /** Compares the form with the saved state and returns what changed. */
 function pricingChanges() {
   const body = { categories: {}, prices: [] };
   let count = 0;
-  const fxEl = $('fx');
-  if (fxEl && fxEl.value !== '' && +fxEl.value !== S.fx) { body.fx = +fxEl.value; count++; }
-  else if (fxEl && fxEl.value === '') { body.fx = 0; count++; }   // empty is invalid: let the server explain
   document.querySelectorAll('#pricesForm [data-cf]').forEach((el) => {
     const cat = el.dataset.cat, f = el.dataset.cf;
     const v = f === 'name' ? el.value : +el.value;
@@ -76,7 +87,7 @@ const pricesDirty = () => UI.view === 'prices' && !!$('pricesForm') && isManager
 /** Live feedback while typing: euro amounts, the example sentence and the Save bar. Nothing is sent to the server. */
 function updatePriceLive() {
   const form = $('pricesForm'); if (!form) return;
-  const fx = +$('fx').value > 0 ? +$('fx').value : S.fx;
+  const fx = S.fx;
   const eur = (v) => `≈ €${num((+v || 0) / fx)}`;
   const defOf = (cat) => +(form.querySelector(`[data-cat="${cat}"][data-m="def"]`).value || 0);
   form.querySelectorAll('[data-m]').forEach((el) => {
@@ -84,7 +95,6 @@ function updatePriceLive() {
     if (el.dataset.m !== 'def') el.placeholder = num(defOf(el.dataset.cat));
     const eu = el.closest('td').nextElementSibling; if (eu) eu.textContent = eur(eff);
   });
-  $('fxNote').textContent = `7,500 lek ≈ €${num(7500 / fx)} at this rate. Euro is shown only as a guide.`;
   const k = Object.keys(S.cats).find((x) => S.cats[x].cap > S.cats[x].inc) || Object.keys(S.cats)[0];
   const val = (f) => form.querySelector(`[data-cf="${f}"][data-cat="${k}"]`).value;
   const mv = form.querySelector(`[data-cat="${k}"][data-m="${new Date().getMonth()}"]`);

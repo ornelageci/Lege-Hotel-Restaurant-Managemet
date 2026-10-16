@@ -10,6 +10,7 @@ const { cors } = require('./cors');
 const { HttpError } = require('./errors');
 const { createMailer } = require('./mailer');
 const { createNotifier } = require('./notifications');
+const fx = require('./fx');
 
 function createApp(db, opts = {}) {
   const app = express();
@@ -30,6 +31,7 @@ function createApp(db, opts = {}) {
         'font-src': ['https://fonts.gstatic.com'],
         'img-src': ["'self'", 'data:'],
         'connect-src': ["'self'"],
+        'manifest-src': ["'self'"],
         'base-uri': ["'self'"],
         'form-action': ["'self'"],
         'frame-ancestors': ["'none'"],
@@ -42,9 +44,16 @@ function createApp(db, opts = {}) {
   app.use(auth.authenticate(db));
 
   app.use('/api', cors(config.corsOrigins), createRouter(db, { mailer, notifier }));
-  app.use(express.static(path.join(__dirname, '..', 'public'), {
+  const publicDir = path.join(__dirname, '..', 'public');
+  app.use(express.static(publicDir, {
     setHeaders: (res, file) => { if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache'); },
   }));
+  // Every page of the app has its own address (/rooms, /guests/<id>, /beach?date=...). The browser does the routing,
+  // so any address that is not the API and not a file gets the app itself. A refresh keeps you on the same page.
+  app.get(/^\/(?!api(?:\/|$))[^.]*$/, (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(publicDir, 'index.html'));
+  });
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, _req, res, _next) => {
@@ -80,6 +89,7 @@ if (require.main === module) {
   const db = dbLib.open(config.dbPath, config.hotelName);
   bootstrapAdmin(db);
   const app = createApp(db);
+  if (config.fxAuto) fx.startAutoUpdate(db, { url: config.fxUrl });
   const server = app.listen(config.port, () => console.log(`Lege is listening on http://localhost:${config.port}`));
   const stop = () => { server.close(() => { db.close(); process.exit(0); }); };
   process.on('SIGTERM', stop);

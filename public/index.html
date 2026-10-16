@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lege · Hotel Management</title>
+<meta name="theme-color" content="#0A2C28">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
@@ -25,7 +30,6 @@
   </nav>
   <div class="who"><b id="whoName"></b><span id="whoRole"></span></div>
   <div class="foot">
-    <button data-action="theme">Light / dark theme</button>
     <button data-action="chpass">Change password</button>
     <button data-action="logout">Sign out</button>
   </div>
@@ -38,18 +42,18 @@
 <dialog id="dlgF" aria-label="Reservation">
   <form id="frm" novalidate>
     <header><h2 id="fT">New reservation</h2><button type="button" class="x" data-action="close" aria-label="Close">×</button></header>
-    <div class="grid">
-      <label class="f full">Guest name<input id="fGuest" list="gl" autocomplete="off" placeholder="First and last name"></label>
+    <div class="grid g3">
+      <label class="f s2">Guest name<input id="fGuest" list="gl" autocomplete="off" placeholder="First and last name"></label>
       <datalist id="gl"></datalist>
       <label class="f">Phone<input id="fPhone" type="tel" autocomplete="off"></label>
       <label class="f">Guest email (optional)<input id="fEmail" type="email" autocomplete="off"></label>
       <label class="f">Number of people<input id="fAd" type="number" min="1" max="12"></label>
       <label class="f">Room<select id="fRoom"></select></label>
-      <label class="f">Source<select id="fSrc"></select></label>
-      <label class="f">Deposit paid now (lek)<input id="fPaid" type="number" min="0"></label>
       <label class="f">Arrival<input id="fArr" type="date"></label>
       <label class="f">Departure<input id="fDep" type="date"></label>
-      <label class="f full">Custom price per night (lek), optional<input id="fCustom" type="number" min="0" placeholder="Automatic"></label>
+      <label class="f">Source<select id="fSrc"></select></label>
+      <label class="f">Deposit paid now (lek)<input id="fPaid" type="number" min="0"></label>
+      <label class="f s2">Custom price per night (lek), optional<input id="fCustom" type="number" min="0" placeholder="Automatic"></label>
       <label class="f full">Special requests<textarea id="fNotes" rows="2"></textarea></label>
       <label class="chk full" id="fNotifyRow"><input id="fNotify" type="checkbox"><span>Email a confirmation to the guest <small>(needs the guest's email)</small></span></label>
     </div>

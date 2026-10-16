@@ -6,6 +6,7 @@ const svc = require('./service');
 const users = require('./users');
 const beach = require('./beach');
 const pos = require('./pos');
+const fx = require('./fx');
 const { HttpError } = require('./errors');
 
 function createRouter(db, { mailer, notifier }) {
@@ -64,7 +65,7 @@ function createRouter(db, { mailer, notifier }) {
   for (const action of ['checkin', 'checkout', 'cancel', 'restore']) {
     r.post(`/reservations/:id/${action}`, h((req) => svc.setStatus(db, req.user, req.params.id, action, config)));
   }
-  r.post('/reservations/:id/payments', h((req) => { svc.addPayment(db, req.user, req.params.id, req.body); }));
+  r.post('/reservations/:id/payments', h((req) => svc.addPayment(db, req.user, req.params.id, req.body)));
 
   /* ---- rooms ---- */
   r.post('/rooms/:id/clean', h((req) => { svc.setRoomDirty(db, req.user, req.params.id, false); }));
@@ -72,8 +73,15 @@ function createRouter(db, { mailer, notifier }) {
 
   /* ---- guests and requests ---- */
   r.patch('/guests/:id', h((req) => { svc.updateGuest(db, req.user, req.params.id, req.body); }));
-  r.post('/requests', h((req) => { svc.createRequest(db, req.user, req.body); }));
+  r.post('/requests', h((req) => svc.createRequest(db, req.user, req.body)));
   r.post('/requests/:id/done', h((req) => { svc.completeRequest(db, req.user, req.params.id); }));
+  r.post('/requests/:id/status', h((req) => { svc.setRequestStatus(db, req.user, req.params.id, req.body.status); }));
+
+  /* ---- exchange rates (automatic; see server/fx.js) ---- */
+  r.get('/fx', h(() => fx.getRates(db)));
+  r.post('/fx/refresh', auth.requireManager, async (_req, res, next) => {
+    try { res.json(await fx.refresh(db, { url: config.fxUrl })); } catch (e) { next(new HttpError(502, `Could not reach the exchange-rate service: ${e.message} The last saved rates stay in use.`)); }
+  });
 
   /* ---- beach umbrellas ---- */
   r.get('/beach', h((req) => beach.day(db, req.query.date || svc.today(config.tz))));

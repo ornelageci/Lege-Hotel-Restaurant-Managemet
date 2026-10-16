@@ -278,3 +278,13 @@ function RequireRole({ role, children }) {
 - Storing it in `sessionStorage` is reasonable, but an XSS bug in the frontend would expose it. Don't load unnecessary third-party scripts.
 - Changing a password (by the user or a manager) immediately invalidates that account's old tokens.
 - Only put your own addresses in `CORS_ORIGINS`.
+
+
+## Added in October 2026
+
+- `POST /reservations/:id/payments` accepts an optional `currency` (`ALL` default, or `EUR`, `USD`, `GBP`, `CHF`). For a foreign currency, `amount` is in that currency (up to 2 decimals) and is converted to lek with the stored rate. The response is `{ amount (lek), currency, foreignAmount, rate, remaining }`. Each entry of `res[].pays` in `/state` now has `currency`, `foreignAmount` and `rate`.
+- `GET /fx` → `{ rates: { EUR, USD, GBP, CHF }, updated }` (lek per 1 unit). `POST /fx/refresh` (manager) fetches new rates now. `/state` includes `fxRates` and `fxUpdated`. The rates are fetched automatically every 6 hours; `fx` (lek per euro) is kept for compatibility.
+- `POST /orders` without `outlet` (or `"outlet": "mixed"`) accepts bar and restaurant items in one order. It is saved as one order per outlet; the response has `orders: [{ id, outlet, total }]` and the overall `total`.
+- `POST /requests/:id/status` with `{ "status": "open" | "progress" | "done" | "cancelled" }`. `/state` requests now include `status`, `createdAt`, `createdBy`, `updatedAt`, `updatedBy`. `POST /requests` returns `{ id }`.
+- `PUT /settings` accepts `beachPerRow`. `GET /beach` returns `perRow`, `rows`, and `row` / `pos` for every umbrella (row 1 is the front row).
+- Every non-API address without a file extension returns the app (`index.html`), so pages like `/rooms` or `/guests/<id>` can be refreshed or bookmarked.

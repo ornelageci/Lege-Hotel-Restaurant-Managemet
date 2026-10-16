@@ -632,3 +632,95 @@ test('migration: old roles become manager and receptionist; Albanian data become
   assert.equal(raw.pragma('user_version', { simple: true }), dbLib.MIGRATIONS.length);
   raw.close();
 });
+
+/* ---------------- feedback round: payments in other currencies, one bill, concierge status, addresses ---------------- */
+
+const fx = require('../server/fx');
+
+test('payments: a clear message when the amount is too high, and payments in euro use the automatic rate', async () => {
+  const c = await loginAs('recepsion@lege.al');
+  fx.saveRates(db, { rates: { EUR: 100, USD: 90, GBP: 115, CHF: 105 }, updated: '2026-10-16T00:00:00.000Z' });
+  const { data } = await call('POST', '/reservations', { guestName: 'Euro Payer', roomId: '106', arr: day(400), dep: day(402), adults: 2 }, c);
+  const id = data.id;
+  const total = Pricing.totalWith(await state(c), 'std', { arr: day(400), dep: day(402), adults: 2 });   // earlier tests may have changed prices
+  const over = await call('POST', `/reservations/${id}/payments`, { amount: total + 1, method: 'cash' }, c);
+  assert.equal(over.status, 409);
+  assert.match(over.data.error, new RegExp(`Still to pay: ${total.toLocaleString('en-US')} lek`));
+  const first = total - 7500;   // leaves 7,500 lek
+  assert.equal((await call('POST', `/reservations/${id}/payments`, { amount: first, method: 'cash' }, c)).status, 200, 'any whole amount works (no steps of 100)');
+  const eur = await call('POST', `/reservations/${id}/payments`, { amount: 50, currency: 'EUR', method: 'card' }, c);
+  assert.equal(eur.status, 200);
+  assert.equal(eur.data.amount, 5000, '50 EUR × 100 = 5,000 lek');
+  assert.equal(eur.data.remaining, 2500);
+  const tooMuch = await call('POST', `/reservations/${id}/payments`, { amount: 30, currency: 'EUR', method: 'cash' }, c);
+  assert.equal(tooMuch.status, 409);
+  assert.match(tooMuch.data.error, /25\.00 EUR/);
+  assert.equal((await call('POST', `/reservations/${id}/payments`, { amount: 1, currency: 'XYZ', method: 'cash' }, c)).status, 400);
+  const st = await state(c);
+  const r = st.res.find((x) => x.id === id);
+  assert.equal(r.paid, total - 2500);
+  assert.deepEqual(r.pays.map((p) => [p.currency, p.foreignAmount, p.rate]), [['ALL', null, null], ['EUR', 50, 100]]);
+  assert.equal(st.fxRates.USD, 90);
+  assert.equal(st.fx, 100, 'the euro rate also feeds the old "fx" field');
+});
+
+test('exchange rates are read from the API response as lek per unit', async () => {
+  const fake = async () => ({ ok: true, json: async () => ({ result: 'success', time_last_update_unix: 1760572800, rates: { EUR: 1, ALL: 97, USD: 1.1, GBP: 0.85, CHF: 0.93 } }) });
+  const r = await fx.fetchRates({ fetchImpl: fake });
+  assert.equal(r.rates.EUR, 97);
+  assert.equal(r.rates.USD, 88.1818);
+  await assert.rejects(fx.fetchRates({ fetchImpl: async () => ({ ok: true, json: async () => ({ rates: { EUR: 1 } }) }) }));
+});
+
+test('one bill for bar and restaurant: a mixed order is saved as one order per outlet', async () => {
+  const c = await loginAs('recepsion@lege.al');
+  const { data } = await call('POST', '/reservations', { guestName: 'Mixed Bill', roomId: '107', arr: day(500), dep: day(502), adults: 2 }, c);
+  await call('POST', '/rooms/107/clean', null, c);
+  assert.equal((await call('POST', `/reservations/${data.id}/checkin`, null, c)).status, 200);
+  const o = await call('POST', '/orders', { destination: 'room', reservationId: data.id, items: [{ id: 'bar-mojito', qty: 2 }, { id: 'rest-burger', qty: 1 }] }, c);
+  assert.equal(o.status, 200);
+  assert.equal(o.data.total, 2 * 700 + 900);
+  assert.deepEqual(o.data.orders.map((x) => [x.outlet, x.total]), [['bar', 1400], ['restaurant', 900]]);
+  const res = (await state(c)).res.find((x) => x.id === data.id);
+  assert.equal(res.chargesTotal, 2300);
+  await call('POST', `/reservations/${data.id}/checkout`, null, c);
+});
+
+test('concierge requests move open -> in progress -> done, with who and when', async () => {
+  const c = await loginAs('recepsion@lege.al');
+  const g = (await state(c)).guests[0];
+  const { data } = await call('POST', '/requests', { guestId: g.id, type: 'Transport', note: 'Airport at 14:00' }, c);
+  let q = (await state(c)).reqs.find((x) => x.id === data.id);
+  assert.equal(q.status, 'open');
+  assert.equal(q.createdBy, 'Recepsion');
+  assert.equal((await call('POST', `/requests/${data.id}/status`, { status: 'progress' }, c)).status, 200);
+  q = (await state(c)).reqs.find((x) => x.id === data.id);
+  assert.equal(q.status, 'progress');
+  assert.equal(q.done, false);
+  assert.equal((await call('POST', `/requests/${data.id}/status`, { status: 'done' }, c)).status, 200);
+  q = (await state(c)).reqs.find((x) => x.id === data.id);
+  assert.equal(q.done, true);
+  assert.equal(q.updatedBy, 'Recepsion');
+  assert.equal((await call('POST', `/requests/${data.id}/status`, { status: 'whatever' }, c)).status, 400);
+});
+
+test('every page has its own address: /rooms, /guests/<id>, /beach?date=... return the app; missing files are 404', async () => {
+  for (const p of ['/rooms', '/reservations?from=2026-10-01', '/guests/abc', '/beach?date=2026-10-14', '/bar-restaurant']) {
+    const res = await fetch(base + p);
+    assert.equal(res.status, 200, p);
+    assert.match(await res.text(), /<main id="main">/);
+  }
+  assert.equal((await fetch(base + '/missing.js')).status, 404);
+  assert.equal((await fetch(base + '/api/nothing-here')).status, 401);
+  assert.equal((await fetch(base + '/favicon.svg')).status, 200);
+});
+
+test('beach rows: row 1 is the front row; the manager sets how many umbrellas per row', async () => {
+  const adm = await loginAs('admin@lege.al');
+  assert.equal((await call('PUT', '/settings', { beachPerRow: 9 }, adm)).status, 200);
+  const d = (await call('GET', `/beach?date=${today()}`, null, adm)).data;
+  assert.equal(d.perRow, 9);
+  assert.equal(d.spots.find((s) => s.spot === 10).row, 2);
+  assert.equal(d.spots.find((s) => s.spot === 10).pos, 1);
+  assert.equal((await call('PUT', '/settings', { beachPerRow: 0 }, adm)).status, 400);
+});

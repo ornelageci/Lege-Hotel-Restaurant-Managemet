@@ -199,7 +199,24 @@ INSERT INTO menu_items (id, outlet, section, name, price) VALUES
   ('rest-icecream','restaurant','Desserts','Ice cream (3 scoops)',400);
 `;
 
-const MIGRATIONS = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3];
+// V4: payments in foreign currencies, concierge request status, automatic exchange rates, beach rows.
+const SCHEMA_V4 = `
+ALTER TABLE payments ADD COLUMN currency TEXT NOT NULL DEFAULT 'ALL';   -- what the guest handed over
+ALTER TABLE payments ADD COLUMN foreign_amount REAL;                    -- amount in that currency (NULL for lek)
+ALTER TABLE payments ADD COLUMN rate REAL;                              -- lek per 1 unit, on the day of the payment
+
+ALTER TABLE requests ADD COLUMN status TEXT NOT NULL DEFAULT 'open';    -- open | progress | done | cancelled
+ALTER TABLE requests ADD COLUMN created_by TEXT;
+ALTER TABLE requests ADD COLUMN updated_at TEXT;
+ALTER TABLE requests ADD COLUMN updated_by TEXT;
+UPDATE requests SET status = 'done' WHERE done = 1;
+
+INSERT OR IGNORE INTO settings (key, value) VALUES ('fx_rates', '{}');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('fx_updated', '');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('beach_per_row', '10');
+`;
+
+const MIGRATIONS = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4];
 
 function migrate(db) {
   let v = db.pragma('user_version', { simple: true });

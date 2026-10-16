@@ -1,4 +1,4 @@
-/* Lege · user interface (core). All data comes from the API; nothing is stored in the browser except the theme and the last sign-in role.
+/* Lege · user interface (core). All data comes from the API; nothing is stored in the browser except the last sign-in role.
  * Other sections live in prices.js, fnb.js, beach.js and staff.js. They register themselves in VIEWS / ACTIONS / HOOKS below. */
 
 /* ---------- helpers ---------- */
@@ -14,7 +14,6 @@ const TIERS = [
   { n: 'Platinum', min: 1500, c: 't2', perk: 'Room upgrade when available and free late check-out.' },
 ];
 const CW = { 7: 112, 14: 76, 30: 54 };
-const THEME_KEY = 'lege:theme';
 const ROLE_KEY = 'lege:loginRole';
 const pad = (n) => String(n).padStart(2, '0');
 const toStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -74,6 +73,43 @@ const balance = (x) => Math.max(0, total(x) - (+x.paid || 0));
 const isAct = (x) => x.status !== 'cancelled';
 const isManager = () => !!S && S.me.role === 'manager';
 const STATUS_L = { confirmed: 'Confirmed', checkedin: 'In hotel', checkedout: 'Checked out', cancelled: 'Cancelled' };
+const REQ_L = { open: 'Open', progress: 'In progress', done: 'Done', cancelled: 'Cancelled' };
+const CUR = { ALL: { sym: 'lek', name: 'Lek' }, EUR: { sym: '€', name: 'Euro' }, USD: { sym: '$', name: 'US dollar' }, GBP: { sym: '£', name: 'Pound' }, CHF: { sym: 'CHF ', name: 'Swiss franc' } };
+const rateOf = (cur) => (cur === 'ALL' ? 1 : +((S.fxRates || {})[cur]) || (cur === 'EUR' ? +S.fx : 0));
+const fmtCur = (v, cur) => (cur === 'ALL' ? money(v) : `${CUR[cur].sym}${(+v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+const fmtWhen = (iso) => (iso ? new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+
+/* ---------- addresses (routing) ----------
+ * Every section has its own URL, so the address bar changes, Back/Forward work and a refresh stays on the same page. */
+const ROUTES = { overview: '/', rooms: '/rooms', res: '/reservations', guests: '/guests', fnb: '/bar-restaurant', beach: '/beach', prices: '/prices', staff: '/staff' };
+function urlFor(view) {
+  let p = ROUTES[view] || '/';
+  const q = new URLSearchParams();
+  if (view === 'guests' && UI.gsel) p += '/' + encodeURIComponent(UI.gsel);
+  if (view === 'res') { if (UI.start !== addDays(today(), -2)) q.set('from', UI.start); if (UI.span !== 14) q.set('days', UI.span); }
+  if (view === 'beach' && UI.beach && UI.beach.date && UI.beach.date !== today()) q.set('date', UI.beach.date);
+  if (view === 'fnb' && UI.fnb && UI.fnb.date && UI.fnb.date !== today()) q.set('date', UI.fnb.date);
+  const qs = q.toString();
+  return p + (qs ? '?' + qs : '');
+}
+/** Reads the address bar into UI and returns the section to show. */
+function readUrl() {
+  const path = location.pathname.replace(/\/+$/, '') || '/';
+  const q = new URLSearchParams(location.search);
+  let view = 'overview';
+  for (const [v, p] of Object.entries(ROUTES)) if (p !== '/' && (path === p || path.startsWith(p + '/'))) view = v;
+  const ok = (d) => d && Pricing.isDate(d);
+  if (view === 'guests') { const id = path.startsWith('/guests/') ? decodeURIComponent(path.slice(8)) : ''; if (id) UI.gsel = id; }
+  if (view === 'res') { UI.start = ok(q.get('from')) ? q.get('from') : addDays(today(), -2); UI.span = [7, 14, 30].includes(+q.get('days')) ? +q.get('days') : 14; }
+  if (view === 'beach' && UI.beach) UI.beach.date = ok(q.get('date')) ? q.get('date') : today();
+  if (view === 'fnb' && UI.fnb) UI.fnb.date = ok(q.get('date')) ? q.get('date') : today();
+  return view;
+}
+function syncUrl(push) {
+  const u = urlFor(UI.view);
+  if (u === location.pathname + location.search) return;
+  history[push ? 'pushState' : 'replaceState']({ view: UI.view }, '', u);
+}
 function stayNow(rid) {
   const t = today();
   const a = S.res.find((x) => x.roomId === rid && x.status === 'checkedin');
@@ -98,6 +134,9 @@ function render() {
   document.querySelectorAll('.nav button').forEach((b) => { if (b.dataset.view === UI.view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   $('main').innerHTML = VIEWS[UI.view]();
   if (AFTER[UI.view]) AFTER[UI.view]();
+  syncUrl(false);   // keep the address bar in step (dates, selected guest...) without adding history entries
+  const t = document.querySelector('.nav [aria-current="page"]');
+  document.title = `${t && UI.view !== 'overview' ? t.textContent.trim() + ' · ' : ''}${S.hotel || 'Lege'} · Hotel Management`;
 }
 function head(title, sub, right) {
   const r = right === undefined ? '<button class="btn gold" data-action="newres">New reservation</button>' : right;
@@ -136,8 +175,8 @@ VIEWS.overview = function overviewHTML() {
       ${deps.length ? deps.map((x) => row(x, `<button class="btn sm" data-action="checkout" data-id="${x.id}">Check out</button>`)).join('') : '<p class="none">No departures left.</p>'}
     </div>
     <div>
-      <h2 class="sec">Concierge <small>${openReq.length} open</small></h2>
-      ${openReq.length ? openReq.map((q) => { const g = guestOf(q.guestId); const s = S.res.find((x) => x.guestId === g.id && x.status === 'checkedin'); return `<div class="lrow"><div class="who"><b>${esc(q.type)}, ${esc(g.name)}</b><span>${s ? 'Room ' + s.roomId + '. ' : ''}${esc(q.note)}</span></div><button class="btn sm" data-action="doreq" data-id="${q.id}">Done</button></div>`; }).join('') : '<p class="none">No open requests.</p>'}
+      <h2 class="sec">Concierge requests <small>${openReq.length} to do</small></h2>
+      ${openReq.length ? openReq.map((q) => reqHTML(q, true)).join('') : '<p class="none">Nothing to do. Guests\' requests (taxi, table, room service…) appear here.</p>'}
       <p class="note">${doneReq.length ? doneReq.length + ' completed. ' : ''}<button class="btn text" data-action="newreq" style="padding:6px 0">Add request</button></p>
       <h2 class="sec gap">Platinum guests in the hotel</h2>
       ${vip.length ? vip.map((x) => { const g = guestOf(x.guestId); return `<div class="lrow link" data-action="gopen" data-id="${g.id}">${med(g, 38)}<div class="who"><b>${esc(g.name)}</b><span>Room ${x.roomId}, until ${fmtD(x.dep)}</span></div></div>`; }).join('') : '<p class="none">None at the moment.</p>'}
@@ -258,35 +297,94 @@ function gdetHTML() {
     <div>
       <h2 class="sec" style="font-size:19px">Stays</h2>
       ${stays.length ? stays.map((x) => `<div class="stay" data-action="opres" data-id="${x.id}"><b>${fmtD(x.arr)} – ${fmtD(x.dep)}</b> <span class="badge s-${x.status}" style="margin-left:6px">${STATUS_L[x.status]}</span><span>Room ${x.roomId}, ${x.adults} ${plural(x.adults, 'person', 'people')}, ${nights(x)} ${plural(nights(x), 'night', 'nights')}, ${money(total(x))}</span></div>`).join('') : '<p class="none">No stays yet.</p>'}
-      <h2 class="sec" style="font-size:19px;margin-top:26px">Concierge requests <small><button class="btn text" data-action="newreq" data-id="${g.id}" style="padding:0">Add</button></small></h2>
-      ${reqs.length ? reqs.map((q) => `<div class="stay" style="cursor:default"><b>${esc(q.type)}</b> ${q.done ? '<span class="badge" style="margin-left:6px">Done</span>' : '<span class="badge s-confirmed" style="margin-left:6px">Open</span>'}<span>${esc(q.note)}</span></div>`).join('') : '<p class="none">No requests.</p>'}
+      <h2 class="sec" style="font-size:19px;margin-top:26px">Concierge requests <small><button class="btn sm" data-action="newreq" data-id="${g.id}">+ New request</button></small></h2>
+      <p class="note" style="margin:4px 0 2px">What the guest asked the front desk for: a taxi, a table, room service… Press <b>Start</b> when someone is on it and <b>Done</b> when it is finished.</p>
+      ${reqs.filter((q) => !q.done).map((q) => reqHTML(q, false)).join('') || '<p class="none">No open requests.</p>'}
+      ${reqs.some((q) => q.done) ? `<details class="olds"><summary>${reqs.filter((q) => q.done).length} completed</summary>${reqs.filter((q) => q.done).map((q) => reqHTML(q, false)).join('')}</details>` : ''}
     </div>
   </div>
   <div style="margin-top:28px"><button class="btn gold" data-action="newres" data-guest="${g.id}">New reservation for ${esc(g.name.split(' ')[0])}</button></div>`;
 }
 
+/** One concierge request with its status and the buttons to move it along. */
+function reqHTML(q, withGuest) {
+  const g = guestOf(q.guestId);
+  const s = g && S.res.find((x) => x.guestId === g.id && x.status === 'checkedin');
+  const st = q.status || (q.done ? 'done' : 'open');
+  let who = `Added ${fmtWhen(q.createdAt)}${q.createdBy ? ' by ' + esc(q.createdBy) : ''}`;
+  if (q.updatedAt && st !== 'open') who += ` · ${REQ_L[st].toLowerCase()} ${fmtWhen(q.updatedAt)}${q.updatedBy ? ' by ' + esc(q.updatedBy) : ''}`;
+  const b = (to, label, cls = '') => `<button class="btn sm ${cls}" data-action="reqst" data-id="${q.id}" data-st="${to}">${label}</button>`;
+  const acts = st === 'open' ? b('progress', 'Start') + b('done', 'Done', 'gold')
+    : st === 'progress' ? b('done', 'Done', 'gold') + b('open', 'Back to open', 'text')
+      : b('open', 'Reopen', 'text');
+  const cancel = st === 'open' || st === 'progress' ? `<button class="rq-x" data-action="reqst" data-id="${q.id}" data-st="cancelled" title="Cancel this request" aria-label="Cancel this request">×</button>` : '';
+  return `<div class="rq rq-${st}">
+    <div class="rq-main"><b>${esc(q.type)}${withGuest && g ? `<span class="rq-g">, ${esc(g.name)}${s ? ' · Room ' + s.roomId : ''}</span>` : ''}</b>
+      <span class="rstat ${st}">${REQ_L[st]}</span>
+      ${q.note ? `<p>${esc(q.note)}</p>` : ''}<small>${who}</small></div>
+    <div class="rq-acts">${acts}${cancel}</div></div>`;
+}
+
 /* ---------- dialogs ---------- */
+/** Shows the details dialog. Wide dialogs lay their content out in two columns so nothing needs scrolling. */
+function showDetails(html, wide) {
+  const d = $('dlgD');
+  d.classList.toggle('wide', !!wide);
+  d.innerHTML = html;
+  if (!d.open) d.showModal();
+}
+function payHint(f) {
+  const id = f.dataset.id, x = S.res.find((r) => r.id === id); if (!x) return;
+  const cur = f.cur.value, rate = rateOf(cur), bal = balance(x);
+  const v = parseAmount(f.amt.value, cur);
+  const lek = cur === 'ALL' ? v : Math.round(v * rate);
+  let h;
+  if (cur === 'ALL') h = `Still to pay ${money(bal)} (≈ €${num(euro(bal))}).`;
+  else h = v > 0 ? `${fmtCur(v, cur)} = <b>${money(lek)}</b> at today's rate (1 ${cur} = ${rate.toLocaleString('en-US', { maximumFractionDigits: 2 })} lek). Still to pay ${fmtCur(bal / rate, cur)}.` : `Still to pay ${fmtCur(bal / rate, cur)} (${money(bal)}).`;
+  $('payHint').innerHTML = h;
+  $('payErr').textContent = '';
+}
+/** "7,500" -> 7500 for lek; "77,25" or "77.25" -> 77.25 for other currencies. */
+function parseAmount(raw, cur) {
+  let t = String(raw || '').trim().replace(/\s/g, '');
+  if (cur === 'ALL') t = t.replace(/[,.](?=\d{3}\b)/g, '');
+  else if (t.includes(',') && !t.includes('.')) t = t.replace(',', '.');
+  else t = t.replace(/,/g, '');
+  const n = Number(t);
+  return Number.isFinite(n) ? n : NaN;
+}
 function openRes(id) {
   const x = S.res.find((r) => r.id === id); if (!x) return;
   const g = guestOf(x.guestId), r = roomOf(x.roomId), c = catOf(r), bal = balance(x), tt = total(x), st = stayTotal(x), n = nights(x);
+  // Main actions in one row; the rest go in a "More" menu so the dialog is not a wall of buttons.
   let acts = '';
   if (x.status === 'confirmed') acts += `<button class="btn gold" data-action="checkin" data-id="${x.id}">Check in</button>`;
   if (x.status === 'checkedin') acts += `<button class="btn gold" data-action="checkout" data-id="${x.id}">Check out</button>`;
   if (x.status === 'cancelled') acts += `<button class="btn gold" data-action="restore" data-id="${x.id}">Restore</button>`;
-  if (x.status === 'checkedin') acts += `<button class="btn" data-action="fnb-for" data-id="${x.id}">Bar / restaurant order</button>`;
-  if (x.status === 'confirmed' || x.status === 'checkedin') acts += `<button class="btn" data-action="beach-for" data-id="${x.id}">Beach umbrella</button>`;
-  if (x.status !== 'checkedout') acts += `<button class="btn" data-action="edit" data-id="${x.id}">Edit</button>`;
-  else acts += `<button class="btn" data-action="edit" data-id="${x.id}" disabled title="A closed reservation cannot be changed">Edit</button>`;
-  if (x.status === 'confirmed') acts += `<button class="btn danger grow2" data-action="cancel" data-id="${x.id}">Cancel</button>`;
+  if (x.status !== 'checkedout' && x.status !== 'cancelled') acts += `<button class="btn" data-action="edit" data-id="${x.id}">Edit</button>`;
+  let more = '';
+  if (x.status === 'checkedin') more += `<button data-action="fnb-for" data-id="${x.id}">Bar / restaurant order</button>`;
+  if (x.status === 'confirmed' || x.status === 'checkedin') more += `<button data-action="beach-for" data-id="${x.id}">Beach umbrella</button>`;
+  more += `<button data-action="gopen" data-id="${g.id}">Guest profile</button>`;
+  if (x.status === 'confirmed') more += `<button class="danger" data-action="cancel" data-id="${x.id}">Cancel reservation</button>`;
+  acts += `<details class="more"><summary class="btn">More <span aria-hidden="true">▾</span></summary><div class="menu">${more}</div></details>`;
   const PAY_L = { cash: 'Cash', card: 'Card', transfer: 'Bank transfer' };
   const OUT_L = { bar: 'Bar', restaurant: 'Restaurant' };
-  const payRows = (x.pays || []).map((p) => `<div class="stay" style="cursor:default"><b>${money(p.amount)}</b> <span class="badge" style="margin-left:6px">${PAY_L[p.method] || esc(p.method)}</span><span>${new Date(p.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</span></div>`).join('');
-  const chargeRows = (x.charges || []).map((c2) => `<div class="stay" style="cursor:default"><b>${money(c2.total)}</b> <span class="badge" style="margin-left:6px">${OUT_L[c2.outlet] || esc(c2.outlet)}</span><span>${c2.items.map((i) => `${i.qty}× ${esc(i.name)}`).join(', ')} · ${new Date(c2.at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</span></div>`).join('');
-  const payForm = (bal > 0 && x.status !== 'cancelled') ? `<form class="payf" data-id="${x.id}"><input type="number" name="amt" min="1" step="100" max="${bal}" value="${bal}" aria-label="Amount in lek"><select name="m" aria-label="Payment method"><option value="cash">Cash</option><option value="card">Card</option><option value="transfer">Bank transfer</option></select><button class="btn sm gold" type="submit">Record payment</button></form>` : '';
-  const payBlock = `<div style="margin:6px 28px 4px"><b style="font-family:var(--head);font-weight:400;font-size:17px">Payments</b>${payRows || '<p class="none" style="padding:8px 0">No payments recorded.</p>'}${payForm}</div>`;
-  const chargeBlock = chargeRows ? `<div style="margin:14px 28px 4px"><b style="font-family:var(--head);font-weight:400;font-size:17px">Charged to the room</b>${chargeRows}</div>` : '';
-  $('dlgD').innerHTML = `<div class="dh2"><div class="ttl">${med(g, 56)}<div><h2>${esc(g.name)}</h2><p>${tierBadge(g)} Room ${r.id}, ${esc(c.name)} <span class="badge s-${x.status}" style="margin-left:6px">${STATUS_L[x.status]}</span></p></div></div><button class="x" data-action="close" aria-label="Close">×</button></div>
-  <dl class="facts">
+  const when = (at) => new Date(at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+  const payRows = (x.pays || []).map((p) => `<div class="stay" style="cursor:default"><b>${money(p.amount)}</b> <span class="badge" style="margin-left:6px">${PAY_L[p.method] || esc(p.method)}</span>${p.currency && p.currency !== 'ALL' ? ` <span class="badge cur">${fmtCur(p.foreignAmount, p.currency)}</span>` : ''}<span>${when(p.at)}${p.currency && p.currency !== 'ALL' ? ` · 1 ${p.currency} = ${p.rate} lek` : ''}</span></div>`).join('');
+  const chargeRows = (x.charges || []).map((c2) => `<div class="stay" style="cursor:default"><b>${money(c2.total)}</b> <span class="badge" style="margin-left:6px">${OUT_L[c2.outlet] || esc(c2.outlet)}</span><span>${c2.items.map((i) => `${i.qty}× ${esc(i.name)}`).join(', ')} · ${when(c2.at)}</span></div>`).join('');
+  const curOpts = Object.keys(CUR).filter((k) => k === 'ALL' || rateOf(k) > 0).map((k) => `<option value="${k}">${k === 'ALL' ? 'Lek' : k}</option>`).join('');
+  const payForm = (bal > 0 && x.status !== 'cancelled') ? `<form class="payf" data-id="${x.id}" novalidate>
+      <div class="payrow"><input type="text" inputmode="decimal" name="amt" value="${bal}" aria-label="Amount" autocomplete="off">
+      <select name="cur" aria-label="Currency">${curOpts}</select>
+      <select name="m" aria-label="Payment method"><option value="cash">Cash</option><option value="card">Card</option><option value="transfer">Bank transfer</option></select></div>
+      <p class="payhint" id="payHint"></p><p class="err" id="payErr" role="alert"></p>
+      <button class="btn gold" type="submit">Record payment</button></form>` : '';
+  const sub = (t) => `<h3 class="dsub">${t}</h3>`;
+  const payBlock = `${sub('Payments')}${payRows || '<p class="none" style="padding:6px 0">No payments recorded yet.</p>'}${payForm}`;
+  const chargeBlock = chargeRows ? `${sub('Charged to the room')}${chargeRows}` : '';
+  showDetails(`<div class="dh2"><div class="ttl">${med(g, 56)}<div><h2>${esc(g.name)}</h2><p>${tierBadge(g)} Room ${r.id}, ${esc(c.name)} <span class="badge s-${x.status}" style="margin-left:6px">${STATUS_L[x.status]}</span></p></div></div><button class="x" data-action="close" aria-label="Close">×</button></div>
+  <dl class="facts rd-facts">
     <div><dt>Arrival</dt><dd>${fmtLong(x.arr)}</dd></div><div><dt>Departure</dt><dd>${fmtLong(x.dep)}</dd></div>
     <div><dt>Stay</dt><dd>${n} ${plural(n, 'night', 'nights')}, ${x.adults} ${plural(x.adults, 'person', 'people')}</dd></div><div><dt>Source</dt><dd>${esc(x.source)}</dd></div>
     <div><dt>Average price per night</dt><dd>${n ? both(st / n) : '–'}${+x.custom > 0 ? ' <small>(custom price)</small>' : ''}</dd></div>
@@ -296,10 +394,9 @@ function openRes(id) {
     <div><dt>Still to pay</dt><dd class="${bal > 0 ? 'owes' : ''}">${bal > 0 ? money(bal) : (x.paid > tt ? 'To refund to the guest: ' + money(x.paid - tt) : 'Paid in full')}</dd></div>
     ${x.notes ? `<div style="grid-column:1/-1"><dt>Special requests</dt><dd>${esc(x.notes)}</dd></div>` : ''}
   </dl>
-  ${chargeBlock}
-  ${payBlock}
-  <div class="acts">${acts}<button class="btn text" data-action="gopen" data-id="${g.id}">Guest profile</button></div>`;
-  if (!$('dlgD').open) $('dlgD').showModal();
+  <div class="rd-side">${payBlock}${chargeBlock}</div>
+  <div class="acts">${acts}</div>`, true);
+  const f = document.querySelector('#dlgD .payf'); if (f) payHint(f);
 }
 function openRoom(id) {
   const r = roomOf(id), c = catOf(r), s = stayNow(id), t = today();
@@ -313,8 +410,7 @@ function openRoom(id) {
   const acts = `<button class="btn gold" data-action="newres" data-room="${r.id}" data-date="${t}">New reservation</button>` +
     (r.dirty ? `<button class="btn" data-action="clean" data-id="${r.id}">Mark as clean</button>` : (!s ? `<button class="btn" data-action="dirty" data-id="${r.id}">Mark for cleaning</button>` : ''));
   const from = unit(S, r.cat, t, c.inc);
-  $('dlgD').innerHTML = `<div class="dh2"><div class="ttl"><div><h2>Room ${r.id}</h2><p>${esc(c.name)}, floor ${r.floor}, up to ${c.cap} people. ${c.extra > 0 ? 'From ' : ''}${money(from)} per night (≈ €${num(euro(from))})${c.extra > 0 ? ', plus ' + money(c.extra) + ' for each person above ' + c.inc : ''}.</p></div></div><button class="x" data-action="close" aria-label="Close">×</button></div>${body}<div class="acts" style="padding-top:22px">${acts}</div>`;
-  if (!$('dlgD').open) $('dlgD').showModal();
+  showDetails(`<div class="dh2"><div class="ttl"><div><h2>Room ${r.id}</h2><p>${esc(c.name)}, floor ${r.floor}, up to ${c.cap} people. ${c.extra > 0 ? 'From ' : ''}${money(from)} per night (≈ €${num(euro(from))})${c.extra > 0 ? ', plus ' + money(c.extra) + ' for each person above ' + c.inc : ''}.</p></div></div><button class="x" data-action="close" aria-label="Close">×</button></div>${body}<div class="acts" style="padding-top:22px">${acts}</div>`, false);
 }
 
 let FORM = { id: null };
@@ -402,11 +498,21 @@ const reopen = (id) => { if ($('dlgD').open) openRes(id); };
 const ALL_DIALOGS = ['dlgD', 'dlgF', 'dlgR', 'dlgP', 'dlgB', 'dlgM', 'dlgU'];
 
 /** Switches to another section. Sections may register a leave hook (e.g. unsaved changes) and an ENTER loader. */
-async function goto(view) {
-  if (HOOKS.leave.some((h) => h(view) === false)) return;
-  UI.view = view; render(); window.scrollTo(0, 0);
-  if (ENTER[view]) await ENTER[view]();
+async function goto(view, { push = true, keep = false } = {}) {
+  if (HOOKS.leave.some((h) => h(view) === false)) return false;
+  UI.view = view;
+  if (push) history.pushState({ view }, '', urlFor(view));
+  render(); window.scrollTo(0, 0);
+  if (ENTER[view]) await ENTER[view](keep);
+  return true;
 }
+/* Back / Forward buttons of the browser */
+window.addEventListener('popstate', async () => {
+  if (!S) return;
+  const prev = urlFor(UI.view);
+  const view = readUrl();
+  if (!(await goto(view, { push: false, keep: true }))) history.pushState({ view: UI.view }, '', prev);   // stayed (unsaved changes)
+});
 
 Object.assign(ACTIONS, {
   nav: (el) => goto(el.dataset.view),
@@ -418,7 +524,7 @@ Object.assign(ACTIONS, {
   room: (el) => openRoom(el.dataset.id),
   edit: (el) => openForm({ id: el.dataset.id }),
   gopen: (el) => { if ($('dlgD').open) $('dlgD').close(); UI.gsel = el.dataset.id; UI.gq = ''; return goto('guests'); },
-  gsel: (el) => { UI.gsel = el.dataset.id; $('gdet').innerHTML = gdetHTML(); document.querySelectorAll('.grow').forEach((b) => b.setAttribute('aria-current', b.dataset.id === el.dataset.id)); },
+  gsel: (el) => { UI.gsel = el.dataset.id; $('gdet').innerHTML = gdetHTML(); document.querySelectorAll('.grow').forEach((b) => b.setAttribute('aria-current', b.dataset.id === el.dataset.id)); syncUrl(true); },
   async checkin(el) {
     const id = el.dataset.id, x = S.res.find((r) => r.id === id);
     const g = guestOf(x.guestId), tier = tierOf(g.points);
@@ -446,6 +552,10 @@ Object.assign(ACTIONS, {
   async dirty(el) { if (await run(() => post(`/rooms/${el.dataset.id}/dirty`))) $('dlgD').close(); },
   newreq: (el) => openReq(el.dataset.id),
   doreq: (el) => run(() => post(`/requests/${el.dataset.id}/done`), 'The request was marked as done.'),
+  reqst: (el) => {
+    const msg = { progress: 'Marked as in progress.', done: 'The request is done.', open: 'The request is open again.', cancelled: 'The request was cancelled.' }[el.dataset.st];
+    return run(() => post(`/requests/${el.dataset.id}/status`, { status: el.dataset.st }), msg);
+  },
   async prefadd() {
     const v = $('pref').value.trim(); if (!v) return;
     const g = guestOf(UI.gsel);
@@ -457,15 +567,11 @@ Object.assign(ACTIONS, {
   },
   chpass: () => { $('pCur').value = ''; $('pNew').value = ''; $('pErr').textContent = ''; $('dlgP').showModal(); },
   async logout() { try { await post('/auth/logout'); } catch (_e) { /* ignore */ } S = null; showLogin(); },
-  theme: () => {
-    const root = document.documentElement;
-    const dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
-    root.dataset.theme = dark ? 'light' : 'dark';
-    try { localStorage.setItem(THEME_KEY, root.dataset.theme); } catch (_e) { /* ignore */ }
-  },
 });
 
 document.addEventListener('click', async (e) => {
+  // close an open "More" menu when clicking anywhere else
+  document.querySelectorAll('details.more[open]').forEach((d) => { if (!d.contains(e.target)) d.open = false; });
   const el = e.target.closest('[data-action]'); if (!el || el.disabled) return;
   const fn = ACTIONS[el.dataset.action];
   if (fn && (S || el.dataset.action === 'login-role')) await fn(el, e);
@@ -475,6 +581,14 @@ document.addEventListener('change', async (e) => {
   const el = e.target;
   if (!S) return;
   for (const h of HOOKS.change) if (await h(el, e)) return;
+  if (el.closest && el.closest('.payf')) {
+    const f = el.closest('.payf');
+    if (el.name === 'cur') {   // switching currency: show the amount still owed in that currency
+      const x = S.res.find((r) => r.id === f.dataset.id), bal = balance(x), rate = rateOf(el.value);
+      f.amt.value = el.value === 'ALL' ? bal : (Math.round(bal / rate * 100) / 100).toFixed(2);
+    }
+    payHint(f); return;
+  }
   if (el.id === 'jump' && el.value) { UI.start = el.value; render(); }
   else if (el.id === 'span') { UI.span = +el.value; render(); }
   else if (el.id === 'gnote') { const g = guestOf(UI.gsel); if (g) await run(() => api(`/guests/${g.id}`, { method: 'PATCH', body: { notes: el.value } }), 'The note was saved.'); }
@@ -482,6 +596,7 @@ document.addEventListener('change', async (e) => {
 document.addEventListener('input', (e) => {
   if (!S) return;
   for (const h of HOOKS.input) if (h(e.target, e)) return;
+  if (e.target.name === 'amt' && e.target.closest('.payf')) { payHint(e.target.closest('.payf')); return; }
   if (e.target.id === 'gq') {
     UI.gq = e.target.value;
     const q = UI.gq.trim().toLowerCase();
@@ -536,8 +651,23 @@ document.addEventListener('submit', async (e) => {
   for (const h of HOOKS.submit) if (await h(f, e)) return;
   if (!f.classList || !f.classList.contains('payf')) return;
   e.preventDefault();
-  const id = f.dataset.id;
-  if (await run(() => post(`/reservations/${id}/payments`, { amount: +f.amt.value, method: f.m.value }), 'Payment recorded.')) reopen(id);
+  const id = f.dataset.id, x = S.res.find((r) => r.id === id), cur = f.cur.value, rate = rateOf(cur);
+  const v = parseAmount(f.amt.value, cur), bal = balance(x);
+  const err = (m) => { $('payErr').textContent = m; f.amt.focus(); };
+  // Check in the browser first and say exactly what is wrong (the server checks the same rules again).
+  if (!(v > 0)) return err('Enter the amount the guest paid (a number greater than 0).');
+  if (cur === 'ALL' && !Number.isInteger(v)) return err('Amounts in lek are whole numbers, without decimals.');
+  if (cur !== 'ALL' && Math.round(v * 100) !== Math.round(v * 100 * 1e6) / 1e6) return err(`Use at most 2 decimals for ${cur}.`);
+  const lek = cur === 'ALL' ? v : Math.round(v * rate);
+  if (lek > bal + (cur === 'ALL' ? 0 : Math.ceil(rate / 100) + 1)) {
+    return err(`That is more than what is still owed. Still to pay: ${money(bal)}${cur === 'ALL' ? '' : ' = ' + fmtCur(bal / rate, cur)}. You entered ${cur === 'ALL' ? money(v) : fmtCur(v, cur) + ' = ' + money(lek)}.`);
+  }
+  const btn = f.querySelector('[type=submit]'); btn.disabled = true;
+  try {
+    const r = await post(`/reservations/${id}/payments`, { amount: v, currency: cur, method: f.m.value });
+    await refresh(); render(); reopen(id);
+    toast(`Payment of ${money(r.amount)}${cur === 'ALL' ? '' : ' (' + fmtCur(v, cur) + ')'} recorded.${r.remaining > 0 ? ' Still to pay: ' + money(r.remaining) + '.' : ' Paid in full.'}`);
+  } catch (e2) { btn.disabled = false; $('payErr').textContent = e2.message; }
 });
 ALL_DIALOGS.forEach((id) => { const d = $(id); d.addEventListener('click', (e) => { if (e.target === d) d.close(); }); });
 
@@ -564,12 +694,13 @@ $('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
     await post('/auth/login', { email: $('lEmail').value, password: $('lPass').value, role: loginRole });
-    UI.view = 'overview';
     await boot();
   } catch (err) { $('lErr').textContent = err.message; }
 });
 async function boot() {
   try { await refresh(); } catch (_e) { showLogin(); return; }
   $('login').hidden = true;
+  UI.view = readUrl();   // open the page that is in the address bar (a refresh stays where you were)
   render();
+  if (ENTER[UI.view]) await ENTER[UI.view](true);
 }

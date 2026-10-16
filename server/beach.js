@@ -36,7 +36,11 @@ function day(db, date) {
   const spots = [];
   for (let i = 1; i <= n; i++) spots.push({ spot: i, booking: bySpot.get(i) || null });
   const taken = spots.filter((s) => s.booking).length;
-  return { date, total: n, taken, free: n - taken, spots };
+  const pr = db.prepare("SELECT value FROM settings WHERE key='beach_per_row'").get();
+  const perRow = Math.max(1, Number(pr && pr.value) || 10);
+  // Row 1 is the front row, nearest the water. Umbrella numbers run left to right, row by row.
+  for (const s of spots) { s.row = Math.ceil(s.spot / perRow); s.pos = ((s.spot - 1) % perRow) + 1; }
+  return { date, total: n, perRow, rows: Math.ceil(n / perRow), taken, free: n - taken, spots };
 }
 
 function create(db, user, b) {

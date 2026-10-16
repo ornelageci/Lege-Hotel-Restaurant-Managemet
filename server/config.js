@@ -20,6 +20,9 @@ const config = {
   receptionistPassword: env.RECEPTIONIST_PASSWORD || '',
   cookieSecure: env.COOKIE_SECURE ? env.COOKIE_SECURE === 'true' : prod,
   trustProxy: env.TRUST_PROXY ? Number(env.TRUST_PROXY) : (prod ? 1 : 0),
+  // Exchange rates are fetched automatically (server/fx.js). FX_AUTO=false turns it off.
+  fxAuto: env.FX_AUTO ? env.FX_AUTO !== 'false' : true,
+  fxUrl: env.FX_URL || 'https://open.er-api.com/v6/latest/EUR',
   loginLimit: Number(env.LOGIN_RATE_LIMIT) || 20,
   // Origins of separate frontends allowed to call the API, e.g. https://panel.lege.al,http://localhost:5173
   corsOrigins: list(env.CORS_ORIGINS).map((s) => s.replace(/\/$/, '')),

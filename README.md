@@ -5,7 +5,7 @@ A web app for the front desk of Hotel Lege: the reservations calendar, room plan
 - **Backend:** Node.js, Express, SQLite (`better-sqlite3`)
 - **Frontend:** plain HTML, CSS and JavaScript (no build step)
 - **Security:** email + password sign-in (bcrypt), two roles (`manager`, `receptionist`) each checked against the role picked at login, session via `httpOnly` cookie or Bearer token, login rate-limiting, CSRF protection, CORS allow-list, `helmet` with a CSP
-- **Tests:** 43 automated tests (`npm test`) covering prices, conflicts, capacity, payments, check-in/check-out, roles, tokens, CORS, the database migration, bar/restaurant orders, beach umbrellas and email notifications
+- **Tests:** 49 automated tests (`npm test`) covering prices, conflicts, capacity, payments, check-in/check-out, roles, tokens, CORS, the database migration, bar/restaurant orders, beach umbrellas and email notifications
 - **API for a separate frontend:** see [`docs/API.md`](docs/API.md) and the ready-made client `docs/lege-client.mjs`
 
 ## What the app covers
@@ -18,6 +18,18 @@ A web app for the front desk of Hotel Lege: the reservations calendar, room plan
 - **Email notifications** — every new reservation is emailed to the hotel's staff (and optionally to the guest), and says who made the booking. If email isn't configured, or sending fails, the reservation still goes through — the attempt is simply logged as "not sent" or "failed", visible on the **Staff & Email** screen.
 - **Staff & Email (managers only)** — create, edit and remove staff accounts, reset passwords, see the email log and send a test email, and review recent activity.
 - **Two ways in** — at sign-in, choose "Receptionist" or "Manager". Each account has one fixed role; picking the wrong one at login is rejected with a clear message, without revealing whether the account exists.
+
+## Changes after the October 2026 review
+
+- **Payments:** any whole amount in lek is accepted (the old "nearest valid value is 7401" browser error is gone). If an amount is too high, the dialog says exactly how much is still owed. Guests can also pay in **EUR, USD, GBP or CHF**; the amount is converted to lek with the rate of the day, and both are stored.
+- **Exchange rates are automatic:** the server fetches them every 6 hours from open.er-api.com (free, no key). If the service can't be reached, the last saved rates stay in use. Managers can press **Update now** on the Prices page.
+- **Light theme only** — the dark mode was removed.
+- **Beach as a map:** the river on top, Row 1 (front row) at the shore, then the rows behind. Managers set how many umbrellas go in each row.
+- **Bar & Restaurant: one bill.** The tabs only switch the menu; the order keeps items from both. The server still records the bar part and the restaurant part separately so each has its own daily totals.
+- **Reservation dialog:** two columns (details on the left, payments on the right) so nothing needs scrolling, main buttons in one row and the rest under **More**.
+- **Concierge requests** now go Open → In progress → Done (or Cancelled), and show who added or changed them and when.
+- **Every page has its own address** (`/rooms`, `/reservations`, `/guests/<id>`, `/beach?date=…`, `/bar-restaurant`, `/prices`, `/staff`). Refresh keeps you on the same page; Back and Forward work.
+- Favicon, cleaner drop-downs (arrow no longer squeezed against the edge), and a wider new-reservation form.
 
 ## Hotel rules built into the app
 

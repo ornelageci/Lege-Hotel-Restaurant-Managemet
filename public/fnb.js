@@ -1,5 +1,7 @@
 /* Bar & Restaurant. Take an order from the menu and either charge it to the room of a guest who is checked in
- * (it is added to their bill and paid at check-out) or settle it on the spot with cash or card. */
+ * (it is added to their bill and paid at check-out) or settle it on the spot with cash or card.
+ * There is ONE order for both: the Bar / Restaurant tabs only switch which menu is shown, the order keeps everything.
+ * The server stores the bar part and the restaurant part separately, so each keeps its own daily totals. */
 const OUTLETS = { bar: 'Bar', restaurant: 'Restaurant' };
 UI.fnb = { outlet: 'bar', cart: {}, dest: 'room', resId: '', method: 'cash', label: '', note: '', date: null, data: null, manage: false };
 let MENU_EDIT = null;   // id of the menu item being edited, or null when adding
@@ -8,7 +10,8 @@ const inHouse = () => S.res.filter((x) => x.status === 'checkedin').sort((a, b) 
 const menuOf = (outlet, includeHidden) => S.menu.filter((m) => m.outlet === outlet && (includeHidden || m.active));
 const cartLines = () => {
   const F = UI.fnb;
-  return Object.entries(F.cart).map(([id, qty]) => ({ m: S.menu.find((m) => m.id === id), qty })).filter((l) => l.m && l.m.outlet === F.outlet && l.m.active);
+  return Object.entries(F.cart).map(([id, qty]) => ({ m: S.menu.find((m) => m.id === id), qty })).filter((l) => l.m && l.m.active)
+    .sort((a, b) => (a.m.outlet === b.m.outlet ? 0 : a.m.outlet === 'bar' ? -1 : 1));
 };
 const cartTotal = () => cartLines().reduce((s, l) => s + l.m.price * l.qty, 0);
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -26,7 +29,8 @@ VIEWS.fnb = function fnbHTML() {
     const q = F.cart[m.id] || 0;
     return `<button class="mi${q ? ' on' : ''}" data-action="fnb-add" data-id="${m.id}"><span>${esc(m.name)}</span><b>${num(m.price)}</b>${q ? `<em>${q}</em>` : ''}</button>`;
   }).join('')}</div>`).join('') : '<p class="none">The menu is empty.' + (isManager() ? ' Use “Manage menu” to add items.' : ' Ask a manager to add items.') + '</p>';
-  const cartHTML = lines.length ? lines.map((l) => `<div class="cl"><div class="cn">${esc(l.m.name)}<small>${money(l.m.price)}</small></div>
+  const mixed = new Set(lines.map((l) => l.m.outlet)).size > 1;
+  const cartHTML = lines.length ? lines.map((l) => `<div class="cl"><div class="cn">${esc(l.m.name)}<small>${money(l.m.price)}${mixed ? ' · ' + OUTLETS[l.m.outlet] : ''}</small></div>
       <div class="qty"><button data-action="fnb-dec" data-id="${l.m.id}" aria-label="Less">−</button><span>${l.qty}</span><button data-action="fnb-add" data-id="${l.m.id}" aria-label="More">+</button></div>
       <b class="lt">${num(l.m.price * l.qty)}</b><button class="rm" data-action="fnb-rm" data-id="${l.m.id}" aria-label="Remove ${esc(l.m.name)}">×</button></div>`).join('') : '<p class="none" style="padding:10px 0">Tap items on the menu to add them.</p>';
   const dest = `<div class="seg" role="radiogroup" aria-label="How is the order settled">
@@ -39,12 +43,12 @@ VIEWS.fnb = function fnbHTML() {
   const canPlace = lines.length && (F.dest === 'paid' || F.resId);
   return `${head('Bar & Restaurant', 'Orders for the bar and the restaurant, charged to the room or paid on the spot',
     isManager() ? `<button class="btn" data-action="menu-manage">${F.manage ? 'Close menu editor' : 'Manage menu'}</button>` : '')}
-  <div class="seg tabs" role="tablist" aria-label="Outlet">${Object.entries(OUTLETS).map(([k, v]) => `<button type="button" data-action="fnb-outlet" data-v="${k}" role="tab" aria-selected="${F.outlet === k}">${v}</button>`).join('')}</div>
+  <div class="seg tabs" role="tablist" aria-label="Menu">${Object.entries(OUTLETS).map(([k, v]) => { const n = lines.filter((l) => l.m.outlet === k).reduce((a, l) => a + l.qty, 0); return `<button type="button" data-action="fnb-outlet" data-v="${k}" role="tab" aria-selected="${F.outlet === k}">${v}${n ? ` <em class="tabn">${n}</em>` : ''}</button>`; }).join('')}</div>
   ${F.manage ? menuEditorHTML() : ''}
   <div class="pos">
     <section aria-label="Menu">${menuHTML}</section>
     <aside class="ticket" aria-label="Current order">
-      <h2 class="sec">New ${OUTLETS[F.outlet].toLowerCase()} order</h2>
+      <h2 class="sec">New order <small>bar and restaurant together</small></h2>
       ${cartHTML}
       <div class="tot"><span>Total</span><b>${money(tot)}</b></div>
       ${dest}
@@ -59,19 +63,19 @@ VIEWS.fnb = function fnbHTML() {
 
 function ordersHTML() {
   const F = UI.fnb, D = F.data;
-  const nav = `<div class="tools" style="margin-top:34px"><h2 class="sec" style="flex:1;border:0;margin:0;padding:0">${OUTLETS[F.outlet]} orders</h2>
+  const nav = `<div class="tools" style="margin-top:34px"><h2 class="sec" style="flex:1;border:0;margin:0;padding:0">Orders of the day</h2>
       <button class="btn" data-action="fnb-day" data-n="-1" aria-label="Previous day">‹</button>
       <input type="date" id="fnbDate" value="${F.date}" aria-label="Day">
       <button class="btn" data-action="fnb-day" data-n="1" aria-label="Next day">›</button>
       <button class="btn" data-action="fnb-day" data-n="0">Today</button></div>`;
   if (!D) return `${nav}<p class="none">Loading orders…</p>`;
-  const list = D.orders.filter((o) => o.outlet === F.outlet);
-  const t = { room: 0, cash: 0, card: 0, count: 0 };
-  list.forEach((o) => { if (o.status === 'void') return; t.count++; if (o.status === 'room') t.room += o.total; else if (o.method === 'card') t.card += o.total; else t.cash += o.total; });
-  const sum = `<div class="sumline" style="justify-content:flex-start;margin:6px 0 10px"><span><b>${t.count}</b>${plural(t.count, 'order', 'orders')}</span><span><b>${num(t.room)}</b>charged to rooms</span><span><b>${num(t.cash)}</b>cash</span><span><b>${num(t.card)}</b>card</span><span><b>${num(t.room + t.cash + t.card)}</b>total lek</span></div>`;
+  const list = D.orders;
+  const t = { room: 0, cash: 0, card: 0, count: 0, bar: 0, restaurant: 0 };
+  list.forEach((o) => { if (o.status === 'void') return; t.count++; t[o.outlet] += o.total; if (o.status === 'room') t.room += o.total; else if (o.method === 'card') t.card += o.total; else t.cash += o.total; });
+  const sum = `<div class="sumline" style="justify-content:flex-start;margin:6px 0 10px"><span><b>${num(t.bar)}</b>bar</span><span><b>${num(t.restaurant)}</b>restaurant</span><span><b>${num(t.room)}</b>charged to rooms</span><span><b>${num(t.cash)}</b>cash</span><span><b>${num(t.card)}</b>card</span><span><b>${num(t.room + t.cash + t.card)}</b>total lek</span></div>`;
   const rows = list.length ? list.map((o) => {
     const who = o.status === 'room' || o.reservationId ? `Room ${esc(o.roomId)} · ${esc(o.guestName)}` : (esc(o.label) || 'Walk-in');
-    const badge = o.status === 'void' ? '<span class="badge s-cancelled">Voided</span>' : o.status === 'room' ? '<span class="badge s-confirmed">Room</span>' : `<span class="badge">${o.method === 'card' ? 'Card' : 'Cash'}</span>`;
+    const badge = `<span class="badge">${OUTLETS[o.outlet]}</span> ` + (o.status === 'void' ? '<span class="badge s-cancelled">Voided</span>' : o.status === 'room' ? '<span class="badge s-confirmed">Room</span>' : `<span class="badge">${o.method === 'card' ? 'Card' : 'Cash'}</span>`);
     return `<div class="lrow${o.status === 'void' ? ' void' : ''}"><div class="who"><b>${who} ${badge}</b><span>${o.items.map((i) => `${i.qty}× ${esc(i.name)}`).join(', ')}${o.note ? ' · ' + esc(o.note) : ''}</span><span>${fmtTime(o.at)}${o.staff ? ' · ' + esc(o.staff) : ''}${o.reservationId && o.label && !/^Room /.test(o.label) ? ' · ' + esc(o.label) : ''}</span></div>
       <b class="amt">${money(o.total)}</b>${isManager() && o.status !== 'void' ? `<button class="btn sm danger" data-action="fnb-void" data-id="${o.id}">Void</button>` : ''}</div>`;
   }).join('') : '<p class="none">No orders on this day.</p>';
@@ -93,7 +97,7 @@ async function loadOrders() {
   try { F.data = await api(`/orders?date=${F.date}`); } catch (e) { F.data = { orders: [], totals: {} }; toast(e.message); }
   if (UI.view === 'fnb') render();
 }
-ENTER.fnb = async () => { UI.fnb.date = today(); UI.fnb.data = null; render(); await loadOrders(); };
+ENTER.fnb = async (keep) => { if (!keep || !UI.fnb.date) UI.fnb.date = today(); UI.fnb.data = null; render(); await loadOrders(); };
 
 const fnbBump = (id, d) => {
   const F = UI.fnb, q = Math.max(0, Math.min(50, (F.cart[id] || 0) + d));
@@ -101,7 +105,7 @@ const fnbBump = (id, d) => {
   render();
 };
 Object.assign(ACTIONS, {
-  'fnb-outlet': (el) => { UI.fnb.outlet = el.dataset.v; UI.fnb.cart = {}; UI.fnb.manage = false; render(); },
+  'fnb-outlet': (el) => { UI.fnb.outlet = el.dataset.v; render(); },   // only the menu changes; the order is kept
   'fnb-add': (el) => fnbBump(el.dataset.id, 1),
   'fnb-dec': (el) => fnbBump(el.dataset.id, -1),
   'fnb-rm': (el) => { delete UI.fnb.cart[el.dataset.id]; render(); },
@@ -116,7 +120,7 @@ Object.assign(ACTIONS, {
   },
   async 'fnb-place'() {
     const F = UI.fnb, lines = cartLines(); if (!lines.length) return;
-    const body = { outlet: F.outlet, destination: F.dest, note: F.note, items: lines.map((l) => ({ id: l.m.id, qty: l.qty })) };
+    const body = { destination: F.dest, note: F.note, items: lines.map((l) => ({ id: l.m.id, qty: l.qty })) };   // no outlet: bar and restaurant together
     if (F.dest === 'room') body.reservationId = F.resId; else { body.method = F.method; body.label = F.label; }
     const guestName = F.dest === 'room' && S.res.find((x) => x.id === F.resId) ? guestOf(S.res.find((x) => x.id === F.resId).guestId).name : '';
     const roomNo = F.dest === 'room' ? (S.res.find((x) => x.id === F.resId) || {}).roomId : '';

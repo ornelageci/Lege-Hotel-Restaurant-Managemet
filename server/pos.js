@@ -12,9 +12,15 @@ const OUTLETS = ['bar', 'restaurant'];
 const OUTLET_LABEL = { bar: 'Bar', restaurant: 'Restaurant' };
 
 /* ---------- orders ---------- */
+/**
+ * One order can mix bar and restaurant items (one bill for the guest): leave `outlet` out, or send "mixed".
+ * It is then saved as one order per outlet (so the bar and the restaurant keep separate daily totals),
+ * all in one transaction. With outlet "bar" or "restaurant", every item must come from that menu.
+ */
 function createOrder(db, user, b, tz) {
   return db.transaction(() => {
-    if (!OUTLETS.includes(b.outlet)) throw new HttpError(400, 'Choose the bar or the restaurant.');
+    const mixed = b.outlet === undefined || b.outlet === null || b.outlet === '' || b.outlet === 'mixed';
+    if (!mixed && !OUTLETS.includes(b.outlet)) throw new HttpError(400, 'Choose the bar or the restaurant.');
     if (!Array.isArray(b.items) || b.items.length === 0) throw new HttpError(400, 'Add at least one item to the order.');
     if (b.items.length > 40) throw new HttpError(400, 'Too many different items in one order.');
 
@@ -27,9 +33,9 @@ function createOrder(db, user, b, tz) {
       seen.add(id);
       const qty = int(it.qty, { min: 1, max: 50, field: 'Quantity' });
       const m = db.prepare('SELECT * FROM menu_items WHERE id = ?').get(id);
-      if (!m || m.outlet !== b.outlet) throw new HttpError(400, 'An item in the order is not on this menu.');
+      if (!m || (!mixed && m.outlet !== b.outlet)) throw new HttpError(400, 'An item in the order is not on this menu.');
       if (!m.active) throw new HttpError(409, `"${m.name}" is not available at the moment.`);
-      lines.push({ name: m.name, price: m.price, qty });
+      lines.push({ outlet: m.outlet, name: m.name, price: m.price, qty });
       total += m.price * qty;
     }
 
@@ -53,14 +59,22 @@ function createOrder(db, user, b, tz) {
       throw new HttpError(400, 'Choose whether to charge the room or to pay now.');
     }
 
-    const id = uid();
-    db.prepare(`INSERT INTO orders (id,outlet,reservation_id,label,total,status,method,note,day,created_at,created_by)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(id, b.outlet, reservationId, label, total, status, method, note, today(tz), nowIso(), user.id);
+    const insOrder = db.prepare(`INSERT INTO orders (id,outlet,reservation_id,label,total,status,method,note,day,created_at,created_by)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)`);
     const ins = db.prepare('INSERT INTO order_items (order_id,name,price,qty) VALUES (?,?,?,?)');
-    for (const l of lines) ins.run(id, l.name, l.price, l.qty);
-    log(db, user, 'order.create', 'order', id, { outlet: b.outlet, total, status, reservationId });
-    return { id, total, status };
+    const created = [];
+    const at = nowIso();
+    for (const outlet of OUTLETS) {
+      const part = lines.filter((l) => l.outlet === outlet);
+      if (!part.length) continue;
+      const id = uid();
+      const sub = part.reduce((s, l) => s + l.price * l.qty, 0);
+      insOrder.run(id, outlet, reservationId, label, sub, status, method, note, today(tz), at, user.id);
+      for (const l of part) ins.run(id, l.name, l.price, l.qty);
+      log(db, user, 'order.create', 'order', id, { outlet, total: sub, status, reservationId });
+      created.push({ id, outlet, total: sub });
+    }
+    return { id: created[0].id, ids: created.map((o) => o.id), orders: created, total, status };
   })();
 }
 

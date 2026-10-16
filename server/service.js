@@ -5,12 +5,15 @@
 const Pricing = require('../public/pricing.js');
 const { HttpError } = require('./errors');
 const beach = require('./beach');
+const fx = require('./fx');
 const { uid, nowIso, today, str, int, log, EMAIL_RE } = require('./util');
 const cfgTz = () => require('./config').tz;
 
 const SOURCES = ['Direct', 'Phone', 'Booking.com', 'Airbnb', 'Agency', 'Other'];
 const REQ_TYPES = ['Transport', 'Restaurant', 'Room service', 'Excursion', 'Other'];
 const PAY_METHODS = ['cash', 'card', 'transfer'];
+const REQ_STATUS = ['open', 'progress', 'done', 'cancelled'];
+const fmtLek = (n) => `${Math.round(n).toLocaleString('en-US')} lek`;
 
 
 /* ---------- prices ---------- */
@@ -38,9 +41,14 @@ const grandTotal = (db, res, P = loadPricing(db)) => reservationTotal(db, res, P
 function getState(db, user, extras = {}) {
   const P = loadPricing(db);
   const settings = Object.fromEntries(db.prepare('SELECT key,value FROM settings').all().map((r) => [r.key, r.value]));
-  const pays = db.prepare('SELECT reservation_id, amount, method, at FROM payments ORDER BY at').all();
+  const pays = db.prepare('SELECT reservation_id, amount, method, at, currency, foreign_amount, rate FROM payments ORDER BY at').all();
   const paysBy = {};
-  for (const p of pays) (paysBy[p.reservation_id] ||= []).push({ amount: p.amount, method: p.method, at: p.at });
+  for (const p of pays) {
+    (paysBy[p.reservation_id] ||= []).push({
+      amount: p.amount, method: p.method, at: p.at, currency: p.currency || 'ALL', foreignAmount: p.foreign_amount, rate: p.rate,
+    });
+  }
+  const FX = fx.getRates(db);
   // Room charges (bar / restaurant) per reservation, with their items.
   const chargeRows = db.prepare("SELECT id, reservation_id, outlet, total, created_at FROM orders WHERE status='room' ORDER BY created_at").all();
   const itemRows = db.prepare("SELECT i.order_id, i.name, i.price, i.qty FROM order_items i JOIN orders o ON o.id = i.order_id WHERE o.status='room'").all();
@@ -54,6 +62,8 @@ function getState(db, user, extras = {}) {
     me: { id: user.id, name: user.name, email: user.email, role: user.role },
     hotel: settings.hotel_name,
     fx: Number(settings.fx),
+    fxRates: FX.rates,              // lek per 1 unit: { EUR, USD, GBP, CHF }
+    fxUpdated: FX.updated,          // when the rates were last updated (automatic, see server/fx.js)
     today: today(extras.tz || 'Europe/Tirane'),
     mailEnabled: !!extras.mailEnabled,
     beachUmbrellas: Number(settings.beach_umbrellas || 39),
@@ -72,8 +82,12 @@ function getState(db, user, extras = {}) {
         charges, chargesTotal: charges.reduce((s, c) => s + c.total, 0),
       };
     }),
-    reqs: db.prepare('SELECT * FROM requests ORDER BY created_at DESC').all().map((q) => ({
-      id: q.id, guestId: q.guest_id, type: q.type, note: q.note, done: !!q.done, day: q.day,
+    reqs: db.prepare(`SELECT q.*, cu.name AS created_by_name, uu.name AS updated_by_name FROM requests q
+                      LEFT JOIN users cu ON cu.id = q.created_by LEFT JOIN users uu ON uu.id = q.updated_by
+                      ORDER BY q.created_at DESC`).all().map((q) => ({
+      id: q.id, guestId: q.guest_id, type: q.type, note: q.note, status: q.status || (q.done ? 'done' : 'open'),
+      done: q.status === 'done' || q.status === 'cancelled', day: q.day,
+      createdAt: q.created_at, createdBy: q.created_by_name || null, updatedAt: q.updated_at || null, updatedBy: q.updated_by_name || null,
     })),
     menu: db.prepare('SELECT id,outlet,section,name,price,active FROM menu_items ORDER BY outlet, section, name').all()
       .map((m) => ({ ...m, active: !!m.active })),
@@ -197,17 +211,46 @@ function setStatus(db, user, id, action, cfg) {
   })();
 }
 
+/**
+ * Records a payment. The guest may pay in lek or in another currency (EUR, USD, GBP, CHF):
+ * a foreign amount is converted to lek with today's automatic rate, and both are stored.
+ * body: { amount, method: 'cash'|'card'|'transfer', currency?: 'ALL'|'EUR'|... }
+ */
 function addPayment(db, user, reservationId, b) {
   const r = getReservation(db, reservationId);
-  if (r.status === 'cancelled') throw new HttpError(409, 'The reservation is cancelled.');
-  const amount = int(b.amount, { min: 1, max: 100000000, field: 'Amount' });
-  if (!PAY_METHODS.includes(b.method)) throw new HttpError(400, 'The payment method is not valid.');
+  if (r.status === 'cancelled') throw new HttpError(409, 'The reservation is cancelled, so no payment can be recorded.');
+  if (!PAY_METHODS.includes(b.method)) throw new HttpError(400, 'Choose how the guest paid: cash, card or bank transfer.');
+  const currency = b.currency === undefined || b.currency === null || b.currency === '' ? 'ALL' : String(b.currency).toUpperCase();
   const total = grandTotal(db, r);   // stay + bar/restaurant charges
   const paid = paidOf(db, reservationId);
-  if (paid + amount > total) throw new HttpError(409, `The amount exceeds what is owed. ${total - paid} lek remain to be paid.`);
-  db.prepare('INSERT INTO payments (id,reservation_id,amount,method,at,user_id) VALUES (?,?,?,?,?,?)')
-    .run(uid(), reservationId, amount, b.method, nowIso(), user.id);
-  log(db, user, 'payment.add', 'reservation', reservationId, { amount, method: b.method });
+  const remaining = total - paid;
+  if (remaining <= 0) throw new HttpError(409, 'This stay is already paid in full. There is nothing left to pay.');
+
+  let amount, foreign = null, rate = null;
+  if (currency === 'ALL') {
+    amount = int(b.amount, { min: 1, max: 100000000, field: 'Amount' });
+  } else {
+    if (!fx.CURRENCIES.includes(currency)) throw new HttpError(400, `Payments in ${currency} are not accepted. Use lek, ${fx.CURRENCIES.join(', ')}.`);
+    rate = fx.getRates(db).rates[currency];
+    if (!(rate > 0)) throw new HttpError(409, `There is no exchange rate for ${currency} yet. Record the payment in lek.`);
+    foreign = Number(b.amount);
+    if (!(foreign > 0) || foreign > 10000000 || Math.round(foreign * 100) !== foreign * 100) {
+      throw new HttpError(400, `The amount in ${currency} must be a positive number with at most 2 decimals.`);
+    }
+    amount = Math.round(foreign * rate);
+    // Converting back and forth can be a few lek off: if the guest pays exactly what was shown, accept it.
+    if (amount > remaining && amount - remaining <= Math.ceil(rate / 100) + 1) amount = remaining;
+    if (amount < 1) throw new HttpError(400, 'The amount is too small.');
+  }
+  if (amount > remaining) {
+    const inCur = currency === 'ALL' ? '' : ` (≈ ${(remaining / rate).toFixed(2)} ${currency} at ${rate} lek)`;
+    throw new HttpError(409, `The amount is more than what is still owed. Still to pay: ${fmtLek(remaining)}${inCur}. `
+      + `You entered ${currency === 'ALL' ? fmtLek(amount) : `${foreign} ${currency} = ${fmtLek(amount)}`}.`);
+  }
+  db.prepare('INSERT INTO payments (id,reservation_id,amount,method,at,user_id,currency,foreign_amount,rate) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(uid(), reservationId, amount, b.method, nowIso(), user.id, currency, foreign, rate);
+  log(db, user, 'payment.add', 'reservation', reservationId, { amount, method: b.method, currency, foreign, rate });
+  return { amount, currency, foreignAmount: foreign, rate, remaining: remaining - amount };
 }
 
 /* ---------- rooms, guests, requests ---------- */
@@ -242,15 +285,20 @@ function createRequest(db, user, b) {
   const type = REQ_TYPES.includes(b.type) ? b.type : 'Other';
   const note = str(b.note, { max: 300, min: 1, field: 'Request details' });
   const id = uid();
-  db.prepare('INSERT INTO requests (id,guest_id,type,note,done,day,created_at) VALUES (?,?,?,?,0,?,?)')
-    .run(id, g.id, type, note, new Date().toISOString().slice(0, 10), nowIso());
+  db.prepare("INSERT INTO requests (id,guest_id,type,note,done,day,created_at,status,created_by) VALUES (?,?,?,?,0,?,?,'open',?)")
+    .run(id, g.id, type, note, new Date().toISOString().slice(0, 10), nowIso(), user.id);
   log(db, user, 'request.create', 'request', id, { type });
+  return { id };
 }
-function completeRequest(db, user, id) {
-  const r = db.prepare('UPDATE requests SET done=1 WHERE id=?').run(id);
+/** Moves a concierge request along: open -> progress (someone is on it) -> done, or cancelled. Can be reopened. */
+function setRequestStatus(db, user, id, status) {
+  if (!REQ_STATUS.includes(status)) throw new HttpError(400, `The status must be one of: ${REQ_STATUS.join(', ')}.`);
+  const done = status === 'done' || status === 'cancelled' ? 1 : 0;
+  const r = db.prepare('UPDATE requests SET status=?, done=?, updated_at=?, updated_by=? WHERE id=?').run(status, done, nowIso(), user.id, id);
   if (!r.changes) throw new HttpError(404, 'Request not found.');
-  log(db, user, 'request.done', 'request', id);
+  log(db, user, `request.${status}`, 'request', id);
 }
+const completeRequest = (db, user, id) => setRequestStatus(db, user, id, 'done');
 
 /* ---------- prices and settings (manager only) ---------- */
 function updateSettings(db, user, b) {
@@ -263,8 +311,12 @@ function updateSettings(db, user, b) {
     if (b.hotelName !== undefined) {
       db.prepare("UPDATE settings SET value=? WHERE key='hotel_name'").run(str(b.hotelName, { max: 80, min: 1, field: 'Hotel name' }));
     }
+    if (b.beachPerRow !== undefined) {
+      const n = int(b.beachPerRow, { min: 1, max: 60, field: 'Umbrellas per row' });
+      db.prepare("INSERT INTO settings (key,value) VALUES ('beach_per_row', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(n));
+    }
     if (b.beachUmbrellas !== undefined) beach.setTotal(db, int(b.beachUmbrellas, { min: 1, max: 500, field: 'Number of umbrellas' }), today(cfgTz()));
-    log(db, user, 'settings.update', 'settings', null, { fx: b.fx, hotelName: b.hotelName, beachUmbrellas: b.beachUmbrellas });
+    log(db, user, 'settings.update', 'settings', null, { fx: b.fx, hotelName: b.hotelName, beachUmbrellas: b.beachUmbrellas, beachPerRow: b.beachPerRow });
   })();
 }
 function updateCategory(db, user, key, b) {
@@ -314,6 +366,6 @@ function recentActivity(db, limit = 100) {
 
 module.exports = {
   log, today, getState, createReservation, updateReservation, setStatus, addPayment, setRoomDirty, updateGuest,
-  createRequest, completeRequest, updateSettings, updateCategory, setPrice, savePricing, recentActivity, loadPricing,
+  createRequest, completeRequest, setRequestStatus, REQ_STATUS, updateSettings, updateCategory, setPrice, savePricing, recentActivity, loadPricing,
   reservationTotal, grandTotal, chargesOf, paidOf, EMAIL_RE, SOURCES, uid, nowIso, str, int,
 };
